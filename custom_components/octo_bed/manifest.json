@@ -11,7 +11,7 @@
   "requirements": ["bleak>=0.21.0"],
   "version": "1.0.0",
   "bluetooth": [
-    {"service_uuid": "0000ffe0-0000-1000-8000-00805f9b34fb"},
-    {"local_name": "Octo*"}
+    {"local_name": "RC2"},
+    {"service_uuid": "0000ffe0-0000-1000-8000-00805f9b34fb"}
   ]
 }
