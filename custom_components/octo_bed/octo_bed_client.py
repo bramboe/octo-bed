@@ -28,6 +28,7 @@ from .const import (
     COMMAND_HANDLE,
     NOTIFY_HANDLE,
     NOTIFY_PIN_REQUIRED,
+    NOTIFY_PIN_REQUIRED_ALT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -76,15 +77,43 @@ class OctoBedClient:
             )
             _LOGGER.debug("Connected to Octo bed at %s", self._device.address)
 
-            # Enable notifications on handle 0x0012 (for PIN keep-alive)
+            # Enable notifications - commands and PIN keep-alive use handle 0x0011
+            # Find characteristic by UUID (most reliable) or handle
+            notified = False
             for service in self._client.services:
                 for char in service.characteristics:
-                    if char.handle == NOTIFY_HANDLE or "notify" in char.properties:
+                    is_cmd_char = (
+                        (char.uuid and str(char.uuid).lower() == COMMAND_CHAR_UUID.lower())
+                        or char.handle == COMMAND_HANDLE
+                        or getattr(char, "value_handle", None) == COMMAND_HANDLE
+                    )
+                    if is_cmd_char and "notify" in char.properties:
                         await self._client.start_notify(
                             char.uuid, self._notification_handler
                         )
-                        _LOGGER.debug("Enabled notifications on handle %s", char.handle)
+                        _LOGGER.debug(
+                            "Enabled notifications on char handle %s", char.handle
+                        )
+                        notified = True
                         break
+                if notified:
+                    break
+            if not notified:
+                # Fallback: enable on first characteristic with notify
+                for service in self._client.services:
+                    for char in service.characteristics:
+                        if "notify" in char.properties:
+                            await self._client.start_notify(
+                                char.uuid, self._notification_handler
+                            )
+                            _LOGGER.debug(
+                                "Enabled notifications (fallback) on handle %s",
+                                char.handle,
+                            )
+                            break
+                    else:
+                        continue
+                    break
 
             # Send PIN immediately after connection (bed may require it)
             await self.send_pin()
@@ -105,8 +134,14 @@ class OctoBedClient:
     ) -> None:
         """Handle notifications from the bed."""
         _LOGGER.debug("Notification: %s", data.hex())
+        raw = bytes(data)
         # Check if PIN is required (keep-alive / re-auth)
-        if bytes(data[:7]) == NOTIFY_PIN_REQUIRED[:7]:
+        # 40214400001b40 = periodic keep-alive, 40217f0000e040 = initial auth
+        pin_required = (
+            (len(raw) >= 7 and raw[:7] == NOTIFY_PIN_REQUIRED[:7])
+            or raw == NOTIFY_PIN_REQUIRED_ALT
+        )
+        if pin_required:
             _LOGGER.debug("PIN required, sending authentication")
             self._send_pin_async()
 
