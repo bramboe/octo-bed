@@ -33,6 +33,9 @@ CMD_LIGHT_OFF = bytes.fromhex("4020710000ef40")
 CMD_PIN_PREFIX = bytes.fromhex("40204300040001")
 CMD_PIN_SUFFIX = bytes.fromhex("40")
 
-# Notification that requires PIN (keep-alive / re-auth)
+# Notifications that require PIN (keep-alive / re-auth)
+# 40214400001b40 = periodic keep-alive request from bed
+# 40217f0000e040 = initial "no PIN given" / auth required (from packet captures)
 NOTIFY_PIN_REQUIRED = bytes.fromhex("40214400001b40")
+NOTIFY_PIN_REQUIRED_ALT = bytes.fromhex("40217f0000e040")
 NOTIFY_PIN_ACCEPTED = bytes.fromhex("40214300011a0140")
