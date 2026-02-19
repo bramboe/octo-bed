@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Callable, Coroutine, Any
 
@@ -25,8 +26,6 @@ from .const import (
     CMD_PIN_SUFFIX,
     CMD_STOP,
     COMMAND_CHAR_UUID,
-    COMMAND_HANDLE,
-    NOTIFY_HANDLE,
     NOTIFY_PIN_REQUIRED,
     NOTIFY_PIN_REQUIRED_ALT,
 )
@@ -82,43 +81,17 @@ class OctoBedClient:
             )
             _LOGGER.debug("Connected to Octo bed at %s", self._device.address)
 
-            # Enable notifications - commands and PIN keep-alive use handle 0x0011
-            # Find characteristic by UUID (most reliable) or handle
-            notified = False
-            for service in self._client.services:
-                for char in service.characteristics:
-                    is_cmd_char = (
-                        (char.uuid and str(char.uuid).lower() == COMMAND_CHAR_UUID.lower())
-                        or char.handle == COMMAND_HANDLE
-                        or getattr(char, "value_handle", None) == COMMAND_HANDLE
-                    )
-                    if is_cmd_char and "notify" in char.properties:
-                        await self._client.start_notify(
-                            char.uuid, self._notification_handler
-                        )
-                        _LOGGER.debug(
-                            "Enabled notifications on char handle %s", char.handle
-                        )
-                        notified = True
-                        break
-                if notified:
-                    break
-            if not notified:
-                # Fallback: enable on first characteristic with notify
-                for service in self._client.services:
-                    for char in service.characteristics:
-                        if "notify" in char.properties:
-                            await self._client.start_notify(
-                                char.uuid, self._notification_handler
-                            )
-                            _LOGGER.debug(
-                                "Enabled notifications (fallback) on handle %s",
-                                char.handle,
-                            )
-                            break
-                    else:
-                        continue
-                    break
+            # Per packet captures: enable notifications on 0xffe1 BEFORE any commands
+            # Bed has minimal GATT - use UUID only (handle fails on Bluetooth proxy)
+            await asyncio.sleep(0.05)  # Brief delay for bed to be ready
+            try:
+                await self._client.start_notify(
+                    COMMAND_CHAR_UUID, self._notification_handler
+                )
+                _LOGGER.debug("Enabled notifications on %s", COMMAND_CHAR_UUID)
+            except BleakError as err:
+                _LOGGER.warning("Could not enable notifications: %s", err)
+                # Continue - we may still be able to send commands
 
             # Send PIN immediately after connection (bed may require it)
             await self.send_pin()
@@ -180,25 +153,10 @@ class OctoBedClient:
             return False
 
         try:
-            # Find command characteristic - Handle 0x0011 from packet captures
-            command_char = None
-            for service in self._client.services:
-                for char in service.characteristics:
-                    if char.handle == COMMAND_HANDLE:
-                        command_char = char
-                        break
-                if command_char:
-                    break
-
-            if command_char:
-                await self._client.write_gatt_char(
-                    command_char, data, response=False
-                )
-            else:
-                # Fallback: use UUID (handle may not work on all Bleak backends)
-                await self._client.write_gatt_char(
-                    COMMAND_CHAR_UUID, data, response=False
-                )
+            # Use UUID only - handle fails on Bluetooth proxy (per octo-esp32)
+            await self._client.write_gatt_char(
+                COMMAND_CHAR_UUID, data, response=False
+            )
             _LOGGER.debug("Sent command: %s", data.hex())
             return True
         except BleakError as err:
