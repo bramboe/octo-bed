@@ -77,6 +77,7 @@ class OctoBedCover(CoverEntity):
         self._current_position: int | None = 0  # Assume down at start
         self._target_position: int | None = None
         self._move_task: asyncio.Task[None] | None = None
+        self._attr_is_closed = True  # 0% = closed
 
     @property
     def current_cover_position(self) -> int | None:
@@ -158,6 +159,7 @@ class OctoBedCover(CoverEntity):
         self._current_position = target
         self._target_position = None
         self._move_task = None
+        self._attr_is_closed = target == 0
         self.async_write_ha_state()
 
     async def async_open_cover(self, **kwargs: Any) -> None:
