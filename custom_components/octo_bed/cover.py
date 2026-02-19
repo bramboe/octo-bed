@@ -19,6 +19,7 @@ from .const import (
     CONF_FULL_TRAVEL_SECONDS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
+    MOVEMENT_COMMAND_INTERVAL_SEC,
 )
 from .octo_bed_client import OctoBedClient
 
@@ -125,7 +126,7 @@ class OctoBedCover(CoverEntity):
         )
 
     async def _async_move_to_position(self, target: int) -> None:
-        """Move cover to target position (0-100)."""
+        """Move cover to target position (0-100). Sends movement command every 340ms (per official app)."""
         current = self._current_position if self._current_position is not None else 0
         if target == current:
             return
@@ -146,9 +147,15 @@ class OctoBedCover(CoverEntity):
             _LOGGER.error("Unknown command %s for cover %s", cmd, self._cover_type)
             return
 
-        await method()
+        start = asyncio.get_running_loop().time()
         try:
-            await asyncio.sleep(duration)
+            while asyncio.get_running_loop().time() - start < duration:
+                if self._move_task and self._move_task.cancelled():
+                    break
+                if not await method():
+                    _LOGGER.warning("Movement command failed")
+                    break
+                await asyncio.sleep(MOVEMENT_COMMAND_INTERVAL_SEC)
         except asyncio.CancelledError:
             pass
         finally:
