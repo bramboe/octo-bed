@@ -100,8 +100,9 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def async_get_options_flow(
-        self, config_entry: config_entries.ConfigEntry
+    @staticmethod
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
     ) -> OctoBedOptionsFlow:
         """Get the options flow for this handler."""
         return OctoBedOptionsFlow(config_entry)
