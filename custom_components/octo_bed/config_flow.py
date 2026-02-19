@@ -12,7 +12,11 @@ from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import DOMAIN
+from .const import (
+    DEFAULT_FULL_TRAVEL_SECONDS,
+    DOMAIN,
+    CONF_FULL_TRAVEL_SECONDS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -96,6 +100,12 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
+    async def async_get_options_flow(
+        self, config_entry: config_entries.ConfigEntry
+    ) -> OctoBedOptionsFlow:
+        """Get the options flow for this handler."""
+        return OctoBedOptionsFlow(config_entry)
+
     async def async_step_import(self, import_data: dict[str, Any]) -> FlowResult:
         """Handle import from configuration.yaml."""
         return await self.async_step_user(import_data)
@@ -127,6 +137,9 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "address": address,
                         "pin": pin,
                     },
+                    options={
+                        CONF_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
+                    },
                 )
 
         schema = vol.Schema(
@@ -139,4 +152,34 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="pin",
             data_schema=schema,
             errors=errors,
+        )
+
+
+class OctoBedOptionsFlow(config_entries.OptionsFlow):
+    """Handle Octo Bed options."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Manage the options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        current = self.config_entry.options.get(
+            CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
+        )
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_FULL_TRAVEL_SECONDS,
+                        default=current,
+                    ): vol.All(vol.Coerce(int), vol.Range(min=5, max=120)),
+                }
+            ),
         )
