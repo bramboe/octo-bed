@@ -42,8 +42,10 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
 
         self._discovery_info = discovery_info
+        # Always show MAC address to differentiate multiple RC2 devices
+        device_name = discovery_info.name or "Octo Bed"
         self.context["title_placeholders"] = {
-            "name": discovery_info.name or discovery_info.address
+            "name": f"{device_name} ({discovery_info.address})"
         }
         return await self.async_step_confirm()
 
