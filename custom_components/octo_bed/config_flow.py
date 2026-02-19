@@ -132,7 +132,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required("pin"): vol.All(
                     str,
                     vol.Length(min=4, max=4),
-                    vol.Match(r"^\d{4}$", message="PIN must be 4 digits"),
+                    vol.Match(r"^\d{4}$"),
                 ),
             }
         )
