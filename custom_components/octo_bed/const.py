@@ -40,3 +40,6 @@ CMD_PIN_SUFFIX = bytes.fromhex("40")
 NOTIFY_PIN_REQUIRED = bytes.fromhex("40214400001b40")
 NOTIFY_PIN_REQUIRED_ALT = bytes.fromhex("40217f0000e040")
 NOTIFY_PIN_ACCEPTED = bytes.fromhex("40214300011a0140")
+
+# Delay after connect before first write (Bluetooth proxy needs time for GATT enumeration)
+DELAY_AFTER_CONNECT_SEC = 1.0
