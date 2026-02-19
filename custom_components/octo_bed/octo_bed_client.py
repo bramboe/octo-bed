@@ -26,6 +26,7 @@ from .const import (
     CMD_PIN_SUFFIX,
     CMD_STOP,
     COMMAND_CHAR_UUID,
+    DELAY_AFTER_CONNECT_SEC,
     NOTIFY_PIN_REQUIRED,
     NOTIFY_PIN_REQUIRED_ALT,
 )
@@ -79,7 +80,10 @@ class OctoBedClient:
                 disconnected_callback=_on_disconnect,
                 timeout=15.0,
             )
-            _LOGGER.debug("Connected to Octo bed at %s", self._device.address)
+            _LOGGER.info("Connected to Octo bed at %s", self._device.address)
+
+            # Delay for GATT enumeration (Bluetooth proxy needs time; per octo-esp32)
+            await asyncio.sleep(DELAY_AFTER_CONNECT_SEC)
 
             # Enable notifications on 0xFFE1 - use UUID only (handle fails on BT proxy)
             try:
@@ -90,11 +94,14 @@ class OctoBedClient:
             except BleakError as err:
                 _LOGGER.warning("Could not enable notifications: %s", err)
 
-            # Brief delay for GATT/service discovery to complete (per packet captures)
-            await asyncio.sleep(0.5)
-
             # Send PIN (bed requires it before accepting commands)
-            await self.send_pin()
+            pin_data = encode_pin(self._pin)
+            try:
+                await self._write_gatt_flexible(pin_data, response=True)
+                _LOGGER.debug("PIN sent (with response)")
+            except BleakError:
+                await self._write_gatt_flexible(pin_data, response=False)
+                _LOGGER.debug("PIN sent (no response)")
 
             return True
         except BleakError as err:
@@ -146,6 +153,23 @@ class OctoBedClient:
         if self._client and self._client.is_connected:
             asyncio.create_task(self._send_command(encode_pin(self._pin)))
 
+    async def _write_gatt_flexible(
+        self, data: bytes, response: bool = False
+    ) -> None:
+        """Write to FFE1. Use UUID only (handle fails on proxy). Retry on 'characteristic not found'."""
+        try:
+            await self._client.write_gatt_char(
+                COMMAND_CHAR_UUID, data, response=response
+            )
+        except BleakError as err:
+            err_str = str(err).lower()
+            if "not found" in err_str and "characteristic" in err_str:
+                await self._client.write_gatt_char(
+                    COMMAND_CHAR_UUID, data, response=response
+                )
+            else:
+                raise
+
     async def _send_command(self, data: bytes) -> bool:
         """Send raw command to the bed."""
         if not await self.ensure_connected():
@@ -153,10 +177,7 @@ class OctoBedClient:
             return False
 
         try:
-            # Use UUID only - handle fails on Bluetooth proxy (per octo-esp32)
-            await self._client.write_gatt_char(
-                COMMAND_CHAR_UUID, data, response=False
-            )
+            await self._write_gatt_flexible(data, response=False)
             _LOGGER.debug("Sent command: %s", data.hex())
             return True
         except BleakError as err:
