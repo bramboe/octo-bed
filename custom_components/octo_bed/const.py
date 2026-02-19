@@ -43,3 +43,5 @@ NOTIFY_PIN_ACCEPTED = bytes.fromhex("40214300011a0140")
 
 # Delay after connect before first write (Bluetooth proxy needs time for GATT enumeration)
 DELAY_AFTER_CONNECT_SEC = 1.0
+# Send movement command this often (340ms = matches official app capture)
+MOVEMENT_COMMAND_INTERVAL_SEC = 0.34
