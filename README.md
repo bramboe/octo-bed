@@ -10,7 +10,8 @@ Control your Octo adjustable bed from Home Assistant via Bluetooth, using an ESP
 
 ## Requirements
 
-- Home Assistant with Bluetooth support (or an [ESPHome Bluetooth proxy](https://esphome.io/components/bluetooth_proxy.html))
+- **ESPHome Bluetooth proxy** (recommended) – flash an ESP32 with [bluetooth_proxy](https://esphome.io/components/bluetooth_proxy.html) and add it to Home Assistant. The integration uses `bluetooth_adapters` so it waits for your proxy to be ready.
+- Or: Home Assistant with built-in Bluetooth
 - Octo adjustable bed with Bluetooth
 - Your bed's 4-digit PIN (from the manual or app)
 
@@ -39,7 +40,7 @@ Control your Octo adjustable bed from Home Assistant via Bluetooth, using an ESP
 
 ### Finding the Bluetooth address
 
-- **With ESPHome Bluetooth proxy**: Use the **bed base** BLE MAC address, not the remote (RC2). You can find it in the ESPHome logs when the bed advertises, or by scanning with a BLE tool.
+- **With ESPHome Bluetooth proxy** (recommended): Use the **bed base** BLE MAC address (e.g. `F6:21:DD:DD:6F:19`), not the remote (RC2). Ensure your ESPHome device has `bluetooth_proxy:` and `esp32_ble_tracker:` in its config. Place the proxy near the bed.
 - **Without proxy**: The bed must be in range of Home Assistant's Bluetooth. Use the address shown during discovery.
 
 ## Entities
