@@ -9,17 +9,28 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
+from .const import (
+    CONF_FULL_TRAVEL_SECONDS,
+    DEFAULT_FULL_TRAVEL_SECONDS,
+    DOMAIN,
+)
 from .octo_bed_client import OctoBedClient
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SWITCH]
+PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SWITCH, Platform.COVER]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Octo Bed from a config entry."""
     hass.data.setdefault(DOMAIN, {})
+
+    # Ensure options exist for existing entries (migration)
+    if not entry.options:
+        hass.config_entries.async_update_entry(
+            entry,
+            options={CONF_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS},
+        )
 
     address = entry.data["address"]
     pin = entry.data["pin"]
