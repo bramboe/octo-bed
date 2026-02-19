@@ -44,10 +44,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error("Could not find Octo bed at address %s", address)
         return False
 
+    async def _get_device():
+        return bluetooth.async_ble_device_from_address(
+            hass, address, connectable=True
+        )
+
     client = OctoBedClient(
         bleak_device,
         pin,
         disconnect_callback=lambda: _LOGGER.warning("Octo bed disconnected"),
+        device_resolver=_get_device,
     )
 
     if not await client.connect():
