@@ -81,9 +81,7 @@ class OctoBedClient:
             )
             _LOGGER.debug("Connected to Octo bed at %s", self._device.address)
 
-            # Per packet captures: enable notifications on 0xffe1 BEFORE any commands
-            # Bed has minimal GATT - use UUID only (handle fails on Bluetooth proxy)
-            await asyncio.sleep(0.05)  # Brief delay for bed to be ready
+            # Enable notifications on 0xFFE1 - use UUID only (handle fails on BT proxy)
             try:
                 await self._client.start_notify(
                     COMMAND_CHAR_UUID, self._notification_handler
@@ -91,9 +89,11 @@ class OctoBedClient:
                 _LOGGER.debug("Enabled notifications on %s", COMMAND_CHAR_UUID)
             except BleakError as err:
                 _LOGGER.warning("Could not enable notifications: %s", err)
-                # Continue - we may still be able to send commands
 
-            # Send PIN immediately after connection (bed may require it)
+            # Brief delay for GATT/service discovery to complete (per packet captures)
+            await asyncio.sleep(0.5)
+
+            # Send PIN (bed requires it before accepting commands)
             await self.send_pin()
 
             return True
