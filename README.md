@@ -20,13 +20,13 @@ Control your Octo adjustable bed from Home Assistant via Bluetooth, using an ESP
 
 1. Open HACS → Integrations
 2. Click the three dots (⋮) → Custom repositories
-3. Add: `https://github.com/bramboersma/octo-bed`
+3. Add: `https://github.com/bramboe/octo-bed`
 4. Search for "Octo Bed" and install
 5. Restart Home Assistant
 
 ### Manual
 
-1. Download the [latest release](https://github.com/bramboersma/octo-bed/releases)
+1. Download the [latest release](https://github.com/bramboe/octo-bed/releases)
 2. Copy the `custom_components/octo_bed` folder to your Home Assistant `custom_components` directory
 3. Restart Home Assistant
 
