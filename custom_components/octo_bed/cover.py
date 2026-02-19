@@ -170,9 +170,9 @@ class OctoBedCover(CoverEntity):
         """Close the cover (move to 0%)."""
         await self.async_set_cover_position(0)
 
-    async def async_set_cover_position(self, **kwargs: Any) -> None:
+    async def async_set_cover_position(self, position: int | None = None, **kwargs: Any) -> None:
         """Move the cover to a specific position (0-100)."""
-        position = kwargs.get("position", 0)
+        position = position if position is not None else kwargs.get("position", 0)
         if position < 0 or position > 100:
             return
 
