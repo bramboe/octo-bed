@@ -2,8 +2,8 @@
 
 DOMAIN = "octo_bed"
 
-# BLE - Service 0xffe0, Characteristic 0xffe1 (Handle 0x0011, CCCD 0x0012)
-# Use UUID only - handle-based access fails on Bluetooth proxy (per octo-esp32)
+# BLE - Service 0xFFE0, Characteristic 0xFFE1 (per packet captures and octo-esp32)
+# Use UUID only - handle fails on Bluetooth proxy
 OCTO_BED_SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"
 COMMAND_CHAR_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"
 COMMAND_HANDLE = 0x0011
