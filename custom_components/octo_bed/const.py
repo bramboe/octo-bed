@@ -11,6 +11,8 @@ NOTIFY_HANDLE = 0x0012
 # Config
 CONF_PIN = "pin"
 CONF_DEVICE_ADDRESS = "device_address"
+CONF_FULL_TRAVEL_SECONDS = "full_travel_seconds"
+DEFAULT_FULL_TRAVEL_SECONDS = 30
 
 # Commands (hex values to write to Handle 0x0011)
 CMD_BOTH_DOWN = bytes.fromhex("4002710001060640")
