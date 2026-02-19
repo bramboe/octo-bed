@@ -57,8 +57,15 @@ The time for full travel (0% to 100%) defaults to 30 seconds. To change it: go t
 ## Troubleshooting
 
 - **Connection fails**: Ensure the bed is powered on and in range. With a Bluetooth proxy, try pressing a button on the remote to wake the bed.
-- **Wrong PIN**: Double-check your 4-digit PIN from the bed's manual or app.
-- **Use bed address, not proxy**: When using ESPHome Bluetooth proxy, always use the bed's BLE address, not the proxy's.
+- **Wrong PIN**: Double-check your 4-digit PIN from the bed's manual or app (e.g. 1987).
+- **Use bed address, not proxy**: When using ESPHome Bluetooth proxy, always use the bed base BLE address (e.g. `F6:21:DD:DD:6F:19`), not the remote (RC2).
+- **Debug logging**: Add to `configuration.yaml`:
+  ```yaml
+  logger:
+    default: info
+    logs:
+      custom_components.octo_bed: debug
+  ```
 
 ## Protocol
 
