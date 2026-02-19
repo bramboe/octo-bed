@@ -105,7 +105,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> OctoBedOptionsFlow:
         """Get the options flow for this handler."""
-        return OctoBedOptionsFlow(config_entry)
+        return OctoBedOptionsFlow()
 
     async def async_step_import(self, import_data: dict[str, Any]) -> FlowResult:
         """Handle import from configuration.yaml."""
@@ -158,10 +158,6 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class OctoBedOptionsFlow(config_entries.OptionsFlow):
     """Handle Octo Bed options."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
