@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from typing import Callable, Coroutine, Any
 
 from bleak import BleakClient, BleakError
 from bleak.backends.characteristic import BleakGATTCharacteristic
@@ -53,21 +53,26 @@ class OctoBedClient:
         device: BLEDevice,
         pin: str,
         disconnect_callback: Callable[[], None] | None = None,
+        device_resolver: Callable[[], Coroutine[Any, Any, BLEDevice | None]] | None = None,
     ) -> None:
         """Initialize the Octo Bed client."""
         self._device = device
         self._pin = pin
         self._client: BleakClient | None = None
         self._disconnect_callback = disconnect_callback
+        self._device_resolver = device_resolver
         self._pin_sent = False
+        self._intentional_disconnect = False
 
     async def connect(self) -> bool:
         """Connect to the bed and authenticate with PIN."""
         try:
             def _on_disconnect(client: BleakClient) -> None:
-                if self._disconnect_callback:
+                self._client = None
+                if not self._intentional_disconnect and self._disconnect_callback:
                     self._disconnect_callback()
 
+            self._intentional_disconnect = False
             self._client = await establish_connection(
                 BleakClientWithServiceCache,
                 self._device,
@@ -125,9 +130,24 @@ class OctoBedClient:
 
     async def disconnect(self) -> None:
         """Disconnect from the bed."""
+        self._intentional_disconnect = True
         if self._client and self._client.is_connected:
             await self._client.disconnect()
-            self._client = None
+        self._client = None
+
+    async def ensure_connected(self) -> bool:
+        """Ensure we are connected; reconnect if needed."""
+        if self._client and self._client.is_connected:
+            return True
+        if self._intentional_disconnect:
+            return False
+        # Refresh device if resolver available (e.g. after disconnect)
+        if self._device_resolver:
+            fresh = await self._device_resolver()
+            if fresh:
+                self._device = fresh
+        _LOGGER.info("Reconnecting to Octo bed at %s", self._device.address)
+        return await self.connect()
 
     def _notification_handler(
         self, characteristic: BleakGATTCharacteristic, data: bytearray
@@ -155,7 +175,7 @@ class OctoBedClient:
 
     async def _send_command(self, data: bytes) -> bool:
         """Send raw command to the bed."""
-        if not self._client or not self._client.is_connected:
+        if not await self.ensure_connected():
             _LOGGER.warning("Not connected to Octo bed")
             return False
 
