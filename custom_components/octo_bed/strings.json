@@ -27,5 +27,15 @@
     "abort": {
       "already_configured": "This device is already configured."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Octo Bed options",
+        "data": {
+          "full_travel_seconds": "Full travel time (seconds, 0% to 100%)"
+        }
+      }
+    }
   }
 }
