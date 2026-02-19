@@ -8,6 +8,7 @@ from typing import Callable
 from bleak import BleakClient, BleakError
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
+from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 
 from .const import (
     CMD_BOTH_DOWN,
@@ -62,12 +63,17 @@ class OctoBedClient:
     async def connect(self) -> bool:
         """Connect to the bed and authenticate with PIN."""
         try:
-            self._client = BleakClient(
+            def _on_disconnect(client: BleakClient) -> None:
+                if self._disconnect_callback:
+                    self._disconnect_callback()
+
+            self._client = await establish_connection(
+                BleakClientWithServiceCache,
                 self._device,
-                disconnected_callback=self._disconnect_callback,
+                "Octo Bed",
+                disconnected_callback=_on_disconnect,
                 timeout=15.0,
             )
-            await self._client.connect()
             _LOGGER.debug("Connected to Octo bed at %s", self._device.address)
 
             # Enable notifications on handle 0x0012 (for PIN keep-alive)
