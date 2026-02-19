@@ -46,8 +46,13 @@ Control your Octo adjustable bed from Home Assistant via Bluetooth, using an ESP
 
 After setup, you'll get:
 
+- **Covers**: Head, Feet, Both – position-based (0% = down, 100% = up). Set a position and the bed moves until it reaches it, then stops automatically.
 - **Buttons**: Both Down, Both Up, Both Up (Continuous), Feet Down, Feet Up, Head Down, Head Up, Head Up (Continuous), Stop
 - **Switch**: Light (under-bed light)
+
+### Cover configuration
+
+The time for full travel (0% to 100%) defaults to 30 seconds. To change it: go to **Settings** → **Devices & Services** → **Octo Bed** → **Configure** and set "Full travel time (seconds)".
 
 ## Troubleshooting
 
