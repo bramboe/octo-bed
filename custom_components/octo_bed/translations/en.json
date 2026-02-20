@@ -31,7 +31,8 @@
   "options": {
     "step": {
       "init": {
-        "title": "Octo Bed options",
+        "title": "Calibration",
+        "description": "{calibration_description}",
         "data": {
           "head_full_travel_seconds": "Head full travel (seconds)",
           "feet_full_travel_seconds": "Feet full travel (seconds)"
