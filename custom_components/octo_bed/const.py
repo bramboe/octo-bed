@@ -4,7 +4,8 @@ DOMAIN = "octo_bed"
 
 # BLE
 OCTO_BED_SERVICE_UUID = "0000fff0-0000-1000-8000-00805f9b34fb"
-COMMAND_CHAR_UUID = "0000fff1-0000-1000-8000-00805f9b34fb"
+# Verified working characteristic UUID from Bleak test script
+COMMAND_CHAR_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"
 COMMAND_HANDLE = 0x0011
 NOTIFY_HANDLE = 0x0012
 
@@ -18,13 +19,14 @@ DEFAULT_FULL_TRAVEL_SECONDS = 30
 CMD_BOTH_DOWN = bytes.fromhex("4002710001060640")
 CMD_BOTH_UP = bytes.fromhex("4002700001070640")
 CMD_BOTH_UP_CONTINUOUS = bytes.fromhex("4002710001080440")
-CMD_FEET_DOWN = bytes.fromhex("4002700001090440")
-CMD_FEET_UP = bytes.fromhex("40027000010b0240")
+# Verified working commands from Bleak test script
+CMD_HEAD_UP = bytes.fromhex("40027000010b0240")
 CMD_HEAD_DOWN = bytes.fromhex("40027100010a0240")
-CMD_HEAD_UP = bytes.fromhex("40027100010a0240")
+CMD_FEET_UP = bytes.fromhex("4002700001090440")
+CMD_FEET_DOWN = bytes.fromhex("4002710001080440")
 CMD_HEAD_UP_CONTINUOUS = bytes.fromhex("4002710001080440")
 CMD_HEAD_UP_DOWN_CONTINUOUS = bytes.fromhex("4002710001080440")  # Same as head up continuous
-CMD_STOP = bytes.fromhex("40027300000b40")
+CMD_STOP = bytes.fromhex("4002710001000040")
 CMD_LIGHT_ON = bytes.fromhex("4020720008df000102010101010040")
 CMD_LIGHT_OFF = bytes.fromhex("4020710000ef40")
 
