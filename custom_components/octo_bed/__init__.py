@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from homeassistant.components import bluetooth
@@ -44,20 +45,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     # Resolve Bluetooth device from HA's bluetooth stack (uses proxy if it sees the bed)
-    bleak_device = bluetooth.async_ble_device_from_address(
-        hass, address, connectable=True
-    )
+    # Try multiple times in case device is still being discovered by proxy
+    bleak_device = None
+    for attempt in range(3):
+        bleak_device = bluetooth.async_ble_device_from_address(
+            hass, address, connectable=True
+        )
+        if bleak_device:
+            break
+        if attempt < 2:
+            _LOGGER.debug(
+                "Device not found yet (attempt %d/3), waiting for proxy to discover...",
+                attempt + 1,
+            )
+            await asyncio.sleep(2)  # Wait for proxy to discover device
 
     if not bleak_device:
         _LOGGER.error(
-            "Could not find Octo bed at address %s. Ensure the bed is powered on, "
-            "in range of an ESPHome Bluetooth proxy (or connectable adapter), and "
-            "try pressing a button on the remote to wake the bed.",
+            "Could not find Octo bed at address %s after 3 attempts. "
+            "Ensure the bed is powered on, in range of an ESPHome Bluetooth proxy "
+            "(or connectable adapter), and try pressing a button on the remote to wake the bed. "
+            "Check Home Assistant → Settings → Devices & Services → Bluetooth to verify "
+            "the proxy is active and can see the bed.",
             address,
         )
         return False
 
+    _LOGGER.info(
+        "Found Octo bed device at %s (source: %s)",
+        address,
+        getattr(bleak_device, "source", "unknown"),
+    )
+
     async def _get_device():
+        """Get fresh device info (useful after reconnection)."""
         return bluetooth.async_ble_device_from_address(
             hass, address, connectable=True
         )
@@ -70,8 +91,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     if not await client.connect():
-        _LOGGER.error("Failed to connect to Octo bed")
+        _LOGGER.error(
+            "Failed to establish connection to Octo bed at %s. "
+            "Check logs above for specific error details.",
+            address,
+        )
         return False
+
+    _LOGGER.info("Octo bed integration setup complete for %s", address)
 
     hass.data[DOMAIN][entry.entry_id] = client
 
