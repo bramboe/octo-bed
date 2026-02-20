@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Callable, Coroutine
+from typing import Callable, Coroutine, Any
 
 from bleak import BleakClient, BleakError
 from bleak.backends.characteristic import BleakGATTCharacteristic
@@ -34,12 +34,10 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-KEEP_ALIVE_INTERVAL_SECONDS = 30.0
-
 
 def encode_pin(pin: str) -> bytes:
     """Encode 4-digit PIN into command format.
-    Format from capture: 40204300040001 + XX XX XX XX + 40
+    Format from working script: 402043000400 + XX XX XX XX + 40
     PIN digits as bytes: 0->0x00, 1->0x01, ..., 9->0x09
     """
     if len(pin) != 4 or not pin.isdigit():
@@ -66,115 +64,96 @@ class OctoBedClient:
         self._device_resolver = device_resolver
         self._pin_sent = False
         self._intentional_disconnect = False
-        self._keep_alive_task: asyncio.Task[None] | None = None
+        self._keepalive_task: asyncio.Task[None] | None = None
+
+    def _start_keepalive(self) -> None:
+        if self._keepalive_task and not self._keepalive_task.done():
+            return
+        self._keepalive_task = asyncio.create_task(self._keep_alive_loop())
+
+    async def _stop_keepalive(self) -> None:
+        task = self._keepalive_task
+        self._keepalive_task = None
+        if not task:
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            return
+
+    async def _keep_alive_loop(self) -> None:
+        """Background task: refresh PIN authentication periodically."""
+        while True:
+            await asyncio.sleep(30)
+            client = self._client
+            if (
+                self._intentional_disconnect
+                or not client
+                or not client.is_connected
+            ):
+                return
+            try:
+                await client.write_gatt_char(
+                    COMMAND_CHAR_UUID, encode_pin(self._pin), response=False
+                )
+                _LOGGER.debug("Keep-alive PIN pulse sent")
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Keep-alive failed: %s", err)
+                return
 
     async def connect(self) -> bool:
         """Connect to the bed and authenticate with PIN."""
         try:
             def _on_disconnect(client: BleakClient) -> None:
                 self._client = None
-                self._cancel_keep_alive()
                 if not self._intentional_disconnect and self._disconnect_callback:
                     self._disconnect_callback()
 
             self._intentional_disconnect = False
-            self._client = await establish_connection(
-                BleakClientWithServiceCache,
-                self._device,
-                "Octo Bed",
-                disconnected_callback=_on_disconnect,
-                timeout=15.0,
-            )
+            try:
+                self._client = await establish_connection(
+                    BleakClientWithServiceCache,
+                    self._device,
+                    "Octo Bed",
+                    disconnected_callback=_on_disconnect,
+                    timeout=15.0,
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug(
+                    "establish_connection failed, trying direct BleakClient: %s", err
+                )
+                direct = BleakClient(self._device, disconnected_callback=_on_disconnect)
+                await direct.connect(timeout=15.0)
+                self._client = direct
+
             _LOGGER.debug("Connected to Octo bed at %s", self._device.address)
 
-            # Ensure services/characteristics are populated (required on some backends)
+            # Ensure services are discovered on all backends
             try:
                 await self._client.get_services()
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.debug("Unable to fetch services: %s", err)
-
-            # Enable notifications - commands and PIN keep-alive use handle 0x0011
-            # Find characteristic by UUID (most reliable) or handle
-            notified = False
-            for service in self._client.services:
-                for char in service.characteristics:
-                    is_cmd_char = (
-                        (char.uuid and str(char.uuid).lower() == COMMAND_CHAR_UUID.lower())
-                        or char.handle == COMMAND_HANDLE
-                        or getattr(char, "value_handle", None) == COMMAND_HANDLE
-                    )
-                    if is_cmd_char and "notify" in char.properties:
-                        await self._client.start_notify(
-                            char.uuid, self._notification_handler
-                        )
-                        _LOGGER.debug(
-                            "Enabled notifications on char handle %s", char.handle
-                        )
-                        notified = True
-                        break
-                if notified:
-                    break
-            if not notified:
-                # Fallback: enable on first characteristic with notify
-                for service in self._client.services:
-                    for char in service.characteristics:
-                        if "notify" in char.properties:
-                            await self._client.start_notify(
-                                char.uuid, self._notification_handler
-                            )
-                            _LOGGER.debug(
-                                "Enabled notifications (fallback) on handle %s",
-                                char.handle,
-                            )
-                            break
-                    else:
-                        continue
-                    break
+            except Exception:  # noqa: BLE001
+                pass
 
             # Send PIN immediately after connection (bed may require it)
             await self.send_pin()
-            self._start_keep_alive()
+            self._start_keepalive()
 
             return True
         except BleakError as err:
             _LOGGER.error("Failed to connect to Octo bed: %s", err)
             return False
         except Exception as err:  # noqa: BLE001
-            _LOGGER.error("Unexpected error connecting to Octo bed: %s", err)
+            _LOGGER.error("Failed to connect to Octo bed: %s", err)
             return False
 
     async def disconnect(self) -> None:
         """Disconnect from the bed."""
         self._intentional_disconnect = True
-        self._cancel_keep_alive()
+        await self._stop_keepalive()
         if self._client and self._client.is_connected:
             await self._client.disconnect()
         self._client = None
-
-    def _cancel_keep_alive(self) -> None:
-        task = self._keep_alive_task
-        self._keep_alive_task = None
-        if task and not task.done():
-            task.cancel()
-
-    def _start_keep_alive(self) -> None:
-        if self._keep_alive_task and not self._keep_alive_task.done():
-            return
-        self._keep_alive_task = asyncio.create_task(self._keep_alive_loop())
-
-    async def _keep_alive_loop(self) -> None:
-        """Periodically send PIN auth to maintain connection."""
-        while self._client and self._client.is_connected and not self._intentional_disconnect:
-            try:
-                await asyncio.sleep(KEEP_ALIVE_INTERVAL_SECONDS)
-                if self._client and self._client.is_connected:
-                    _LOGGER.debug("Keep-alive: sending PIN auth")
-                    await self.send_pin()
-            except asyncio.CancelledError:
-                return
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.debug("Keep-alive loop exiting: %s", err)
-                return
 
     async def ensure_connected(self) -> bool:
         """Ensure we are connected; reconnect if needed."""
@@ -219,15 +198,12 @@ class OctoBedClient:
             return False
 
         try:
-            # Prefer UUID write (matches known-working Bleak script)
+            # Prefer UUID writes (most reliable across backends)
             await self._client.write_gatt_char(COMMAND_CHAR_UUID, data, response=False)
             _LOGGER.debug("Sent command: %s", data.hex())
             return True
         except BleakError as err:
             _LOGGER.error("Failed to send command: %s", err)
-            return False
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.error("Unexpected error sending command: %s", err)
             return False
 
     async def send_pin(self) -> bool:
@@ -236,15 +212,21 @@ class OctoBedClient:
 
     async def both_down(self) -> bool:
         """Send both sides down command."""
-        return await self._send_command(CMD_BOTH_DOWN)
+        ok1 = await self.head_down()
+        ok2 = await self.feet_down()
+        return ok1 and ok2
 
     async def both_up(self) -> bool:
         """Send both sides up command."""
-        return await self._send_command(CMD_BOTH_UP)
+        ok1 = await self.head_up()
+        ok2 = await self.feet_up()
+        return ok1 and ok2
 
     async def both_up_continuous(self) -> bool:
         """Send both sides up continuously."""
-        return await self._send_command(CMD_BOTH_UP_CONTINUOUS)
+        ok1 = await self.head_up_continuous()
+        ok2 = await self.feet_up()
+        return ok1 and ok2
 
     async def feet_down(self) -> bool:
         """Send feet down command."""
