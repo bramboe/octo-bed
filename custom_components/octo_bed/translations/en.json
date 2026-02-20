@@ -31,17 +31,11 @@
   "options": {
     "step": {
       "init": {
-        "title": "Calibration",
-        "description": "{calibration_description}",
+        "title": "Configuration",
+        "description": "{config_description}",
         "data": {
           "head_full_travel_seconds": "Head full travel (seconds)",
-          "feet_full_travel_seconds": "Feet full travel (seconds)"
-        }
-      },
-      "calibration_controls": {
-        "title": "Calibration controls",
-        "description": "{calibration_controls_description}",
-        "data": {
+          "feet_full_travel_seconds": "Feet full travel (seconds)",
           "show_calibration_buttons": "Show calibration buttons"
         }
       }
