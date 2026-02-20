@@ -79,6 +79,7 @@ class OctoBedCover(CoverEntity):
         self._target_position: int | None = None
         self._move_task: asyncio.Task[None] | None = None
         self._attr_is_closed = True  # 0% = closed
+        self._current_command: str | None = None  # Track which command is currently being sent
 
     @property
     def current_cover_position(self) -> int | None:
@@ -147,12 +148,25 @@ class OctoBedCover(CoverEntity):
             _LOGGER.error("Unknown command %s for cover %s", cmd, self._cover_type)
             return
 
+        # Ensure we're only sending one command type at a time
+        if self._current_command is not None and self._current_command != cmd:
+            _LOGGER.warning("Cover %s: Command conflict detected! Was sending %s, now trying %s", 
+                          self._cover_type, self._current_command, cmd)
+        
+        self._current_command = cmd
+        _LOGGER.debug("Cover %s: Moving %s using command %s", self._cover_type, "up" if up else "down", cmd)
+
         # Continuously send movement command for the required duration and
         # update the visual position based on elapsed time.
+        # Use a longer delay (0.375s) to match the bed's command interval from packet captures
         start_time = time.monotonic()
         end_time = start_time + duration
         try:
             while time.monotonic() < end_time:
+                # Double-check we're still supposed to send this command
+                if self._current_command != cmd:
+                    _LOGGER.warning("Cover %s: Command changed during movement, stopping", self._cover_type)
+                    break
                 await method()
                 # Update current position proportionally to elapsed time so HA shows progress
                 now = time.monotonic()
@@ -163,7 +177,7 @@ class OctoBedCover(CoverEntity):
                     self._current_position = new_pos
                     self._attr_is_closed = new_pos == 0
                     self.async_write_ha_state()
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.375)  # Match bed's natural command interval (~375ms from captures)
         except asyncio.CancelledError:
             # Stop requested (either user stop or new target)
             raise
@@ -179,6 +193,7 @@ class OctoBedCover(CoverEntity):
         self._current_position = target
         self._target_position = None
         self._move_task = None
+        self._current_command = None
         self._attr_is_closed = target == 0
         self.async_write_ha_state()
 
@@ -218,4 +233,5 @@ class OctoBedCover(CoverEntity):
         await self._client.stop()
         self._move_task = None
         self._target_position = None
+        self._current_command = None
         self.async_write_ha_state()
