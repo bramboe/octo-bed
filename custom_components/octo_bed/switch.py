@@ -38,8 +38,11 @@ async def async_setup_entry(
     )
 
     entities: list[SwitchEntity] = [
-        OctoBedBothToggleSwitch(
-            client, device_info, full_travel_seconds
+        OctoBedMovementSwitch(
+            client, "both_up", "Both Up", "mdi:arrow-up-bold", device_info, full_travel_seconds
+        ),
+        OctoBedMovementSwitch(
+            client, "both_down", "Both Down", "mdi:arrow-down-bold", device_info, full_travel_seconds
         ),
         OctoBedMovementSwitch(
             client, "head_up", "Head Up", "mdi:arrow-up", device_info, full_travel_seconds
@@ -91,122 +94,6 @@ class OctoBedLightSwitch(SwitchEntity):
             self.async_write_ha_state()
 
 
-class OctoBedBothToggleSwitch(SwitchEntity):
-    """Representation of a toggle switch for both bed sides (up/down)."""
-
-    _attr_has_entity_name = True
-    _attr_name = "Both"
-    _attr_icon = "mdi:bed"
-    _attr_unique_id = "octo_bed_both"
-
-    def __init__(
-        self,
-        client: OctoBedClient,
-        device_info: DeviceInfo,
-        full_travel_seconds: int,
-    ) -> None:
-        """Initialize the both toggle switch."""
-        self._client = client
-        self._attr_device_info = device_info
-        self._is_on: bool = False  # False = down, True = up
-        self._full_travel_seconds = full_travel_seconds
-        self._task: asyncio.Task[None] | None = None
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if the bed is up (on) or down (off)."""
-        # If there's an active task, use the task state
-        if self._task and not self._task.done():
-            return self._is_on
-        # Otherwise, check actual position from shared state
-        # Consider "on" if position is > 50%
-        return self._client.get_both_position() > 50
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Move both sides up."""
-        # Cancel any existing movement
-        if self._task and not self._task.done():
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            await self._client.stop()
-
-        self._is_on = True
-        self.async_write_ha_state()
-
-        self._task = asyncio.create_task(self._movement_loop(True))
-        self._client.register_movement_task(self._task)
-        self._client.register_active_movement("both", self._task)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Move both sides down."""
-        # Cancel any existing movement
-        if self._task and not self._task.done():
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            await self._client.stop()
-
-        self._is_on = False
-        self.async_write_ha_state()
-
-        self._task = asyncio.create_task(self._movement_loop(False))
-        self._client.register_movement_task(self._task)
-        self._client.register_active_movement("both", self._task)
-
-    async def _movement_loop(self, going_up: bool) -> None:
-        """Continuously send movement commands until switched off or full travel reached."""
-        method = self._client.both_up if going_up else self._client.both_down
-        
-        # Get current position from shared state
-        start_position = self._client.get_both_position()
-        target_position = 100 if going_up else 0
-        position_delta = target_position - start_position
-        
-        end_time = time.monotonic() + self._full_travel_seconds
-        start_time = time.monotonic()
-        cancelled = False
-        try:
-            while time.monotonic() < end_time:
-                # Check if this movement was cancelled due to conflict
-                if self._task and self._task.cancelled():
-                    cancelled = True
-                    break
-                await method()
-                
-                # Update position based on elapsed time
-                elapsed = time.monotonic() - start_time
-                progress = min(1.0, elapsed / self._full_travel_seconds)
-                new_position = int(round(start_position + position_delta * progress))
-                self._client.set_both_position(new_position)
-                
-                await asyncio.sleep(0.1)
-        except asyncio.CancelledError:
-            # Turned off by user or stop button
-            cancelled = True
-        finally:
-            # Update position based on how far we got
-            elapsed = time.monotonic() - start_time
-            progress = min(1.0, elapsed / self._full_travel_seconds)
-            final_position = int(round(start_position + position_delta * progress))
-            self._client.set_both_position(final_position)
-            
-            # If we reached full-travel time (not cancelled), send stop command.
-            if not cancelled:
-                try:
-                    await self._client._send_command(CMD_STOP)
-                except Exception:  # noqa: BLE001
-                    _LOGGER.debug("Failed to send stop after switch move", exc_info=True)
-
-            # Reset state when task completes
-            self._task = None
-            self.async_write_ha_state()
-
-
 class OctoBedMovementSwitch(SwitchEntity):
     """Representation of an Octo Bed movement switch."""
 
@@ -249,7 +136,9 @@ class OctoBedMovementSwitch(SwitchEntity):
         self._client.register_movement_task(self._task)
         
         # Register which part is moving to prevent conflicts
-        if "head" in self._action:
+        if "both" in self._action:
+            self._client.register_active_movement("both", self._task)
+        elif "head" in self._action:
             self._client.register_active_movement("head", self._task)
         elif "feet" in self._action:
             self._client.register_active_movement("feet", self._task)
@@ -277,7 +166,11 @@ class OctoBedMovementSwitch(SwitchEntity):
 
         # Determine which part we're moving and get current position
         going_up = "up" in self._action
-        if "head" in self._action:
+        if "both" in self._action:
+            start_position = self._client.get_both_position()
+            target_position = 100 if going_up else 0
+            position_setter = self._client.set_both_position
+        elif "head" in self._action:
             start_position = self._client.get_head_position()
             target_position = 100 if going_up else 0
             position_setter = self._client.set_head_position
