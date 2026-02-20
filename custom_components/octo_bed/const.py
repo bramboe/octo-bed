@@ -25,8 +25,9 @@ CMD_HEAD_UP = bytes.fromhex("40027000010b0240")
 CMD_HEAD_UP_CONTINUOUS = bytes.fromhex("40027000010b0240")
 CMD_HEAD_UP_DOWN_CONTINUOUS = bytes.fromhex("40027000010b0240")
 CMD_STOP = bytes.fromhex("4002710001000040")
-CMD_LIGHT_ON = bytes.fromhex("4020720008df000102010101010040")
-CMD_LIGHT_OFF = bytes.fromhex("4020710000ef40")
+# Light control (captured from nRF sniffer)
+CMD_LIGHT_OFF = bytes.fromhex("4020720008df000102010101010040")
+CMD_LIGHT_ON = bytes.fromhex("4020720008de000102010101010140")
 
 # PIN authentication - format: 402043000400 + 4 PIN digits as bytes + 40
 # PIN digits: 0-9 encoded as 0x00-0x09
