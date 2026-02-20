@@ -13,7 +13,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS, DOMAIN, CMD_STOP
+from .const import (
+    CONF_FEET_FULL_TRAVEL_SECONDS,
+    CONF_FULL_TRAVEL_SECONDS,
+    CONF_HEAD_FULL_TRAVEL_SECONDS,
+    DEFAULT_FULL_TRAVEL_SECONDS,
+    DOMAIN,
+    CMD_STOP,
+)
 from .octo_bed_client import OctoBedClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,28 +40,31 @@ async def async_setup_entry(
         manufacturer="Octo",
     )
 
-    full_travel_seconds = entry.options.get(
+    default_travel = entry.options.get(
         CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
     )
+    head_travel = entry.options.get(CONF_HEAD_FULL_TRAVEL_SECONDS, default_travel)
+    feet_travel = entry.options.get(CONF_FEET_FULL_TRAVEL_SECONDS, default_travel)
+    both_travel = max(head_travel, feet_travel)
 
     entities: list[SwitchEntity] = [
         OctoBedMovementSwitch(
-            client, "both_up", "Both Up", "mdi:arrow-up-bold", device_info, full_travel_seconds
+            client, "both_up", "Both Up", "mdi:arrow-up-bold", device_info, both_travel
         ),
         OctoBedMovementSwitch(
-            client, "both_down", "Both Down", "mdi:arrow-down-bold", device_info, full_travel_seconds
+            client, "both_down", "Both Down", "mdi:arrow-down-bold", device_info, both_travel
         ),
         OctoBedMovementSwitch(
-            client, "head_up", "Head Up", "mdi:arrow-up", device_info, full_travel_seconds
+            client, "head_up", "Head Up", "mdi:arrow-up", device_info, head_travel
         ),
         OctoBedMovementSwitch(
-            client, "head_down", "Head Down", "mdi:arrow-down", device_info, full_travel_seconds
+            client, "head_down", "Head Down", "mdi:arrow-down", device_info, head_travel
         ),
         OctoBedMovementSwitch(
-            client, "feet_up", "Feet Up", "mdi:arrow-up", device_info, full_travel_seconds
+            client, "feet_up", "Feet Up", "mdi:arrow-up", device_info, feet_travel
         ),
         OctoBedMovementSwitch(
-            client, "feet_down", "Feet Down", "mdi:arrow-down", device_info, full_travel_seconds
+            client, "feet_down", "Feet Down", "mdi:arrow-down", device_info, feet_travel
         ),
         OctoBedLightSwitch(client, device_info),
     ]
