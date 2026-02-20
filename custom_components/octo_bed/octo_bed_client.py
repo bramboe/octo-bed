@@ -212,9 +212,7 @@ class OctoBedClient:
 
     async def both_down(self) -> bool:
         """Send both sides down command."""
-        ok1 = await self.head_down()
-        ok2 = await self.feet_down()
-        return ok1 and ok2
+        return await self._send_command(CMD_BOTH_DOWN)
 
     async def both_up(self) -> bool:
         """Send both sides up command."""
