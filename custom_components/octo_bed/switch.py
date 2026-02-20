@@ -13,13 +13,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from homeassistant.const import EntityCategory
-
 from .const import (
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_FULL_TRAVEL_SECONDS,
     CONF_HEAD_FULL_TRAVEL_SECONDS,
-    CONF_SHOW_CALIBRATION_BUTTONS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
     CMD_STOP,
@@ -70,7 +67,6 @@ async def async_setup_entry(
             client, "feet_down", "Feet Down", "mdi:arrow-down", device_info, feet_travel
         ),
         OctoBedLightSwitch(client, device_info),
-        OctoBedShowCalibrationButtonsSwitch(hass, entry, device_info),
     ]
 
     async_add_entities(entities)
@@ -106,48 +102,6 @@ class OctoBedLightSwitch(SwitchEntity):
         if await self._client.light_off():
             self._is_on = False
             self.async_write_ha_state()
-
-
-class OctoBedShowCalibrationButtonsSwitch(SwitchEntity):
-    """Configuration switch to show or hide calibration buttons on the device."""
-
-    _attr_entity_category = EntityCategory.CONFIG
-    _attr_has_entity_name = True
-    _attr_name = "Show calibration buttons"
-    _attr_icon = "mdi:hammer-wrench"
-    _attr_unique_id = "octo_bed_show_calibration_buttons"
-
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        entry: ConfigEntry,
-        device_info: DeviceInfo,
-    ) -> None:
-        """Initialize the config switch."""
-        self._hass = hass
-        self._entry = entry
-        self._attr_device_info = device_info
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if calibration buttons are shown."""
-        return self._entry.options.get(CONF_SHOW_CALIBRATION_BUTTONS, True)
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Enable calibration buttons (reload to apply)."""
-        options = dict(self._entry.options)
-        options[CONF_SHOW_CALIBRATION_BUTTONS] = True
-        self._hass.config_entries.async_update_entry(self._entry, options=options)
-        self.async_write_ha_state()
-        await self._hass.config_entries.async_reload(self._entry.entry_id)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Hide calibration buttons (reload to apply)."""
-        options = dict(self._entry.options)
-        options[CONF_SHOW_CALIBRATION_BUTTONS] = False
-        self._hass.config_entries.async_update_entry(self._entry, options=options)
-        self.async_write_ha_state()
-        await self._hass.config_entries.async_reload(self._entry.entry_id)
 
 
 class OctoBedMovementSwitch(SwitchEntity):
