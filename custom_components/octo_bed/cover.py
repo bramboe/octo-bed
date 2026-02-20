@@ -156,6 +156,10 @@ class OctoBedCover(CoverEntity):
         
         if target == current:
             return
+        
+        # Check if this movement was cancelled due to conflict
+        if self._move_task and self._move_task.cancelled():
+            return
 
         full_travel = self._get_full_travel_seconds()
         duration: float
@@ -186,11 +190,17 @@ class OctoBedCover(CoverEntity):
         # Use a longer delay (0.375s) to match the bed's command interval from packet captures
         start_time = time.monotonic()
         end_time = start_time + duration
+        cancelled = False
         try:
             while time.monotonic() < end_time:
+                # Check if this movement was cancelled due to conflict
+                if self._move_task and self._move_task.cancelled():
+                    cancelled = True
+                    break
                 # Double-check we're still supposed to send this command
                 if self._current_command != cmd:
                     _LOGGER.warning("Cover %s: Command changed during movement, stopping", self._cover_type)
+                    cancelled = True
                     break
                 await method()
                 # Update current position proportionally to elapsed time so HA shows progress
@@ -212,33 +222,57 @@ class OctoBedCover(CoverEntity):
                 await asyncio.sleep(0.375)  # Match bed's natural command interval (~375ms from captures)
         except asyncio.CancelledError:
             # Stop requested (either user stop, stop button, or new target)
+            cancelled = True
             # Send stop command to bed
             try:
                 await self._client._send_command(CMD_STOP)
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("Failed to send stop after cover move cancelled", exc_info=True)
             raise
-        try:
-            await self._client._send_command(CMD_STOP)
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug("Failed to send stop after cover move", exc_info=True)
+        finally:
+            # Update position to final position (either target if completed, or current progress if cancelled)
+            if cancelled:
+                # Update to current progress position
+                now = time.monotonic()
+                elapsed = now - start_time
+                frac = max(0.0, min(1.0, elapsed / duration)) if duration > 0 else 0.0
+                final_pos = int(round(current + (target - current) * frac))
+            else:
+                # Reached target
+                final_pos = target
+                try:
+                    await self._client._send_command(CMD_STOP)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("Failed to send stop after cover move", exc_info=True)
 
-        if not self._move_task or self._move_task.cancelled():
-            return
+            if not self._move_task or self._move_task.cancelled():
+                # Already cancelled, just update position
+                if self._cover_type == "head":
+                    self._client.set_head_position(final_pos)
+                elif self._cover_type == "feet":
+                    self._client.set_feet_position(final_pos)
+                else:  # both
+                    self._client.set_both_position(final_pos)
+                self._target_position = None
+                self._move_task = None
+                self._current_command = None
+                self._attr_is_closed = final_pos == 0
+                self.async_write_ha_state()
+                return
 
-        # Snap to exact target at the end of the move and update shared state
-        if self._cover_type == "head":
-            self._client.set_head_position(target)
-        elif self._cover_type == "feet":
-            self._client.set_feet_position(target)
-        else:  # both
-            self._client.set_both_position(target)
-        
-        self._target_position = None
-        self._move_task = None
-        self._current_command = None
-        self._attr_is_closed = target == 0
-        self.async_write_ha_state()
+            # Snap to exact target at the end of the move and update shared state
+            if self._cover_type == "head":
+                self._client.set_head_position(final_pos)
+            elif self._cover_type == "feet":
+                self._client.set_feet_position(final_pos)
+            else:  # both
+                self._client.set_both_position(final_pos)
+            
+            self._target_position = None
+            self._move_task = None
+            self._current_command = None
+            self._attr_is_closed = final_pos == 0
+            self.async_write_ha_state()
 
     async def async_open_cover(self, **kwargs: Any) -> None:
         """Open the cover (move to 100%)."""
@@ -264,6 +298,8 @@ class OctoBedCover(CoverEntity):
         self._target_position = position
         self._move_task = asyncio.create_task(self._async_move_to_position(position))
         self._client.register_movement_task(self._move_task)
+        # Register which part is moving to prevent conflicts
+        self._client.register_active_movement(self._cover_type, self._move_task)
         self.async_write_ha_state()
 
     async def async_stop_cover(self, **kwargs: Any) -> None:
