@@ -173,12 +173,14 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
                 return self.async_show_form(
                     step_id="init",
                     data_schema=self._options_schema(),
+                    description_placeholders={"calibration_description": "Set full travel time (seconds) for head and feet. These are updated when you complete calibration, or use 30 s as default."},
                     errors={"base": "invalid_number"},
                 )
             if not (5 <= head <= 120 and 5 <= feet <= 120):
                 return self.async_show_form(
                     step_id="init",
                     data_schema=self._options_schema(user_input),
+                    description_placeholders={"calibration_description": "Set full travel time (seconds) for head and feet. These are updated when you complete calibration, or use 30 s as default."},
                     errors={"base": "invalid_range"},
                 )
             return self.async_create_entry(
@@ -192,6 +194,7 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=self._options_schema(),
+            description_placeholders={"calibration_description": "Set full travel time (seconds) for head and feet. These are updated when you complete calibration, or use 30 s as default."},
         )
 
     def _options_schema(
