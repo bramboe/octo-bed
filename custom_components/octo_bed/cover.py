@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from homeassistant.components.cover import (
@@ -146,13 +147,19 @@ class OctoBedCover(CoverEntity):
             _LOGGER.error("Unknown command %s for cover %s", cmd, self._cover_type)
             return
 
-        await method()
+        # Continuously send movement command for the required duration
+        end_time = time.monotonic() + duration
         try:
-            await asyncio.sleep(duration)
+            while time.monotonic() < end_time:
+                await method()
+                await asyncio.sleep(0.1)
         except asyncio.CancelledError:
-            pass
-        finally:
+            # Stop requested (either user stop or new target)
+            raise
+        try:
             await self._client.stop()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Failed to send stop after cover move", exc_info=True)
 
         if not self._move_task or self._move_task.cancelled():
             return
