@@ -65,6 +65,11 @@ class OctoBedClient:
         self._pin_sent = False
         self._intentional_disconnect = False
         self._keepalive_task: asyncio.Task[None] | None = None
+        self._active_movement_tasks: set[asyncio.Task[None]] = set()
+        # Shared position state (0-100, where 0 = down, 100 = up)
+        self._head_position: int = 0
+        self._feet_position: int = 0
+        self._position_callbacks: list[Callable[[str, int], None]] = []
 
     def _start_keepalive(self) -> None:
         if self._keepalive_task and not self._keepalive_task.done():
@@ -244,8 +249,71 @@ class OctoBedClient:
         """Send head up continuously."""
         return await self._send_command(CMD_HEAD_UP_CONTINUOUS)
 
+    def register_movement_task(self, task: asyncio.Task[None]) -> None:
+        """Register a movement task so it can be cancelled when stop is called."""
+        self._active_movement_tasks.add(task)
+        # Remove task when it completes
+        task.add_done_callback(self._active_movement_tasks.discard)
+
+    def get_head_position(self) -> int:
+        """Get current head position (0-100)."""
+        return self._head_position
+
+    def get_feet_position(self) -> int:
+        """Get current feet position (0-100)."""
+        return self._feet_position
+
+    def get_both_position(self) -> int:
+        """Get current 'both' position (average of head and feet)."""
+        # Use average to represent the overall position when head and feet differ
+        return int(round((self._head_position + self._feet_position) / 2.0))
+
+    def set_head_position(self, position: int) -> None:
+        """Set head position (0-100) and notify listeners."""
+        position = max(0, min(100, position))
+        if self._head_position != position:
+            self._head_position = position
+            self._notify_position_change("head", position)
+
+    def set_feet_position(self, position: int) -> None:
+        """Set feet position (0-100) and notify listeners."""
+        position = max(0, min(100, position))
+        if self._feet_position != position:
+            self._feet_position = position
+            self._notify_position_change("feet", position)
+
+    def set_both_position(self, position: int) -> None:
+        """Set both head and feet positions to the same value."""
+        position = max(0, min(100, position))
+        self.set_head_position(position)
+        self.set_feet_position(position)
+
+    def register_position_callback(self, callback: Callable[[str, int], None]) -> None:
+        """Register a callback to be notified when position changes.
+        Callback receives (part: str, position: int) where part is 'head', 'feet', or 'both'.
+        """
+        self._position_callbacks.append(callback)
+
+    def _notify_position_change(self, part: str, position: int) -> None:
+        """Notify all registered callbacks of a position change."""
+        for callback in self._position_callbacks:
+            try:
+                callback(part, position)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Position callback failed", exc_info=True)
+
     async def stop(self) -> bool:
-        """Send stop command."""
+        """Send stop command and cancel all active movement tasks."""
+        # Cancel all active movement tasks
+        for task in list(self._active_movement_tasks):
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        
+        # Send stop command to the bed
         return await self._send_command(CMD_STOP)
 
     async def light_on(self) -> bool:
