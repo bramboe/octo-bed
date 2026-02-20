@@ -39,9 +39,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Prefer connectable adapters (e.g. ESPHome Bluetooth proxy) so connections go through proxy
     connectable_count = bluetooth.async_scanner_count(hass, connectable=True)
     if connectable_count == 0:
-        _LOGGER.warning(
-            "No connectable Bluetooth adapter found. Add an ESPHome Bluetooth proxy "
-            "(or another connectable adapter) so the Octo bed can be reached."
+        _LOGGER.info(
+            "No connectable Bluetooth adapter detected. If using ESPHome Bluetooth proxy, "
+            "ensure it has 'bluetooth_proxy:' component enabled. The integration will try "
+            "to connect using any available Bluetooth adapter."
         )
 
     # Resolve Bluetooth device from HA's bluetooth stack (uses proxy if it sees the bed)
