@@ -17,7 +17,9 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
+    CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_FULL_TRAVEL_SECONDS,
+    CONF_HEAD_FULL_TRAVEL_SECONDS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
     CMD_STOP,
@@ -139,10 +141,18 @@ class OctoBedCover(CoverEntity):
         return "both_down"
 
     def _get_full_travel_seconds(self) -> int:
-        """Get full travel seconds from options."""
-        return self._entry.options.get(
+        """Get full travel seconds for this cover type (head, feet, or both)."""
+        default = self._entry.options.get(
             CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
         )
+        if self._cover_type == "head":
+            return self._entry.options.get(CONF_HEAD_FULL_TRAVEL_SECONDS, default)
+        if self._cover_type == "feet":
+            return self._entry.options.get(CONF_FEET_FULL_TRAVEL_SECONDS, default)
+        # both: use the longer of head and feet
+        head = self._entry.options.get(CONF_HEAD_FULL_TRAVEL_SECONDS, default)
+        feet = self._entry.options.get(CONF_FEET_FULL_TRAVEL_SECONDS, default)
+        return max(head, feet)
 
     async def _async_move_to_position(self, target: int) -> None:
         """Move cover to target position (0-100)."""
