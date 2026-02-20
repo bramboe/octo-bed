@@ -13,6 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import (
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_HEAD_FULL_TRAVEL_SECONDS,
+    CONF_SHOW_CALIBRATION_BUTTONS,
     DOMAIN,
 )
 from .octo_bed_client import OctoBedClient
@@ -34,12 +35,15 @@ async def async_setup_entry(
         manufacturer="Octo",
     )
 
-    buttons = [
+    buttons: list[ButtonEntity] = [
         OctoBedButton(client, "stop", "Stop", "mdi:stop", device_info),
-        OctoBedCalibrateButton(client, entry, "calibrate_head", "Calibrate head", "mdi:arrow-up-bold", device_info),
-        OctoBedCalibrateButton(client, entry, "calibrate_feet", "Calibrate feet", "mdi:arrow-up-bold", device_info),
-        OctoBedCompleteCalibrationButton(client, entry, device_info),
     ]
+    if entry.options.get(CONF_SHOW_CALIBRATION_BUTTONS, True):
+        buttons.extend([
+            OctoBedCalibrateButton(client, entry, "calibrate_head", "Calibrate head", "mdi:arrow-up-bold", device_info),
+            OctoBedCalibrateButton(client, entry, "calibrate_feet", "Calibrate feet", "mdi:arrow-up-bold", device_info),
+            OctoBedCompleteCalibrationButton(client, entry, device_info),
+        ])
 
     async_add_entities(buttons)
 
