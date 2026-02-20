@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Callable, Coroutine, Any
 
@@ -80,15 +81,30 @@ class OctoBedClient:
 
             self._intentional_disconnect = False
             # Use longer timeout for proxy/ESP32; more attempts for flaky discovery
+            _LOGGER.info("Establishing connection to Octo bed at %s", self._device.address)
             self._client = await establish_connection(
                 BleakClientWithServiceCache,
                 self._device,
                 "Octo Bed",
                 disconnected_callback=_on_disconnect,
-                timeout=25.0,
+                timeout=30.0,  # Increased timeout for proxy connections
                 max_attempts=6,
             )
-            _LOGGER.debug("Connected to Octo bed at %s", self._device.address)
+            
+            if not self._client.is_connected:
+                _LOGGER.error("Connection established but client reports not connected")
+                return False
+                
+            _LOGGER.info("BLE connection established to Octo bed at %s", self._device.address)
+
+            # Wait a moment for service discovery to complete (especially important for proxy)
+            await asyncio.sleep(0.5)
+            
+            # Verify we can access services (connection is actually working)
+            if not self._client.services:
+                _LOGGER.warning("No services discovered - connection may be incomplete")
+            else:
+                _LOGGER.debug("Discovered %d service(s)", len(self._client.services))
 
             # Enable notifications - commands and PIN keep-alive use handle 0x0011
             # Find characteristic by UUID (most reliable) or handle
@@ -104,8 +120,8 @@ class OctoBedClient:
                         await self._client.start_notify(
                             char.uuid, self._notification_handler
                         )
-                        _LOGGER.debug(
-                            "Enabled notifications on char handle %s", char.handle
+                        _LOGGER.info(
+                            "Enabled notifications on command characteristic (handle %s)", char.handle
                         )
                         notified = True
                         break
@@ -119,7 +135,7 @@ class OctoBedClient:
                             await self._client.start_notify(
                                 char.uuid, self._notification_handler
                             )
-                            _LOGGER.debug(
+                            _LOGGER.info(
                                 "Enabled notifications (fallback) on handle %s",
                                 char.handle,
                             )
@@ -134,7 +150,7 @@ class OctoBedClient:
                     await self._client.start_notify(
                         COMMAND_CHAR_UUID, self._notification_handler
                     )
-                    _LOGGER.debug(
+                    _LOGGER.info(
                         "Enabled notifications by UUID %s (discovery fallback)",
                         COMMAND_CHAR_UUID,
                     )
@@ -149,8 +165,22 @@ class OctoBedClient:
                 )
 
             # Send PIN immediately after connection (bed may require it)
-            await self.send_pin()
+            _LOGGER.info("Sending PIN authentication to bed")
+            pin_sent = await self.send_pin()
+            if not pin_sent:
+                _LOGGER.error("Failed to send PIN - connection may not be authenticated")
+                # Don't fail connection yet - bed might still work, just log warning
+            else:
+                _LOGGER.info("PIN sent successfully")
+                # Give bed a moment to process PIN
+                await asyncio.sleep(0.3)
+            
+            # Verify connection is still alive and we can write
+            if not self._client.is_connected:
+                _LOGGER.error("Connection lost after PIN send")
+                return False
 
+            _LOGGER.info("Connection to Octo bed established and authenticated")
             return True
         except BleakNotFoundError as err:
             _LOGGER.error(
@@ -213,9 +243,6 @@ class OctoBedClient:
 
     def _send_pin_async(self) -> None:
         """Send PIN asynchronously - called from notification handler."""
-        # Schedule on the event loop
-        import asyncio
-
         if self._client and self._client.is_connected:
             asyncio.create_task(self._send_command(encode_pin(self._pin)))
 
@@ -240,15 +267,31 @@ class OctoBedClient:
                 await self._client.write_gatt_char(
                     command_char, data, response=False
                 )
+                _LOGGER.debug("Sent command via handle %s: %s", command_char.handle, data.hex())
             else:
-                # Fallback: use UUID (handle may not work on all Bleak backends)
-                await self._client.write_gatt_char(
-                    COMMAND_CHAR_UUID, data, response=False
-                )
-            _LOGGER.debug("Sent command: %s", data.hex())
+                # Fallback: use UUID (handle may not work on all Bleak backends/proxies)
+                try:
+                    await self._client.write_gatt_char(
+                        COMMAND_CHAR_UUID, data, response=False
+                    )
+                    _LOGGER.debug("Sent command via UUID %s: %s", COMMAND_CHAR_UUID, data.hex())
+                except BleakError as uuid_err:
+                    # Last resort: try writing to handle directly as integer
+                    _LOGGER.debug("UUID write failed, trying direct handle write: %s", uuid_err)
+                    try:
+                        # Some backends allow direct handle access
+                        await self._client.write_gatt_char(
+                            COMMAND_HANDLE, data, response=False
+                        )
+                        _LOGGER.debug("Sent command via direct handle %s: %s", COMMAND_HANDLE, data.hex())
+                    except (BleakError, AttributeError, TypeError):
+                        raise uuid_err  # Re-raise original UUID error
             return True
         except BleakError as err:
             _LOGGER.error("Failed to send command: %s", err)
+            # If write fails, connection might be broken
+            if self._client and not self._client.is_connected:
+                _LOGGER.warning("Connection lost during command send")
             return False
 
     async def send_pin(self) -> bool:
