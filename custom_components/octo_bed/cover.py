@@ -147,11 +147,22 @@ class OctoBedCover(CoverEntity):
             _LOGGER.error("Unknown command %s for cover %s", cmd, self._cover_type)
             return
 
-        # Continuously send movement command for the required duration
-        end_time = time.monotonic() + duration
+        # Continuously send movement command for the required duration and
+        # update the visual position based on elapsed time.
+        start_time = time.monotonic()
+        end_time = start_time + duration
         try:
             while time.monotonic() < end_time:
                 await method()
+                # Update current position proportionally to elapsed time so HA shows progress
+                now = time.monotonic()
+                elapsed = now - start_time
+                frac = max(0.0, min(1.0, elapsed / duration)) if duration > 0 else 1.0
+                new_pos = int(round(current + (target - current) * frac))
+                if new_pos != self._current_position:
+                    self._current_position = new_pos
+                    self._attr_is_closed = new_pos == 0
+                    self.async_write_ha_state()
                 await asyncio.sleep(0.1)
         except asyncio.CancelledError:
             # Stop requested (either user stop or new target)
@@ -163,6 +174,8 @@ class OctoBedCover(CoverEntity):
 
         if not self._move_task or self._move_task.cancelled():
             return
+
+        # Snap to exact target at the end of the move
         self._current_position = target
         self._target_position = None
         self._move_task = None
