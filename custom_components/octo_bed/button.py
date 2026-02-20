@@ -6,6 +6,7 @@ import logging
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -79,6 +80,7 @@ class OctoBedButton(ButtonEntity):
 class OctoBedCalibrateButton(ButtonEntity):
     """Button to start calibration for head or feet."""
 
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_has_entity_name = True
 
     def __init__(
@@ -108,6 +110,7 @@ class OctoBedCalibrateButton(ButtonEntity):
 class OctoBedCompleteCalibrationButton(ButtonEntity):
     """Button to complete calibration: save duration as 100% travel and return bed to 0%."""
 
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_has_entity_name = True
     _attr_name = "Complete calibration session"
     _attr_icon = "mdi:check-circle"
