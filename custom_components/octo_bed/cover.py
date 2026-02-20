@@ -106,10 +106,10 @@ class OctoBedCover(CoverEntity):
     def _get_up_command(self) -> str:
         """Get the up command method name for this cover type."""
         if self._cover_type == "head":
-            return "head_up_continuous"
+            return "head_up"
         if self._cover_type == "feet":
             return "feet_up"
-        return "both_up_continuous"
+        return "both_up"
 
     def _get_down_command(self) -> str:
         """Get the down command method name for this cover type."""
@@ -189,7 +189,6 @@ class OctoBedCover(CoverEntity):
                 await self._move_task
             except asyncio.CancelledError:
                 pass
-            await self._client.stop()
 
         self._target_position = position
         self._move_task = asyncio.create_task(self._async_move_to_position(position))
