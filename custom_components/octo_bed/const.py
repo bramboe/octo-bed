@@ -12,6 +12,8 @@ NOTIFY_HANDLE = 0x0012
 CONF_PIN = "pin"
 CONF_DEVICE_ADDRESS = "device_address"
 CONF_FULL_TRAVEL_SECONDS = "full_travel_seconds"
+CONF_HEAD_FULL_TRAVEL_SECONDS = "head_full_travel_seconds"
+CONF_FEET_FULL_TRAVEL_SECONDS = "feet_full_travel_seconds"
 DEFAULT_FULL_TRAVEL_SECONDS = 30
 
 # Commands (hex values to write to Handle 0x0011)
