@@ -30,19 +30,8 @@ async def async_setup_entry(
         manufacturer="Octo",
     )
 
+    # Only expose stop as a button; movement is handled by switches.
     buttons = [
-        OctoBedButton(client, "both_down", "Both Down", "mdi:arrow-down", device_info),
-        OctoBedButton(client, "both_up", "Both Up", "mdi:arrow-up", device_info),
-        OctoBedButton(
-            client, "both_up_continuous", "Both Up (Continuous)", "mdi:arrow-up-bold", device_info
-        ),
-        OctoBedButton(client, "feet_down", "Feet Down", "mdi:arrow-down", device_info),
-        OctoBedButton(client, "feet_up", "Feet Up", "mdi:arrow-up", device_info),
-        OctoBedButton(client, "head_down", "Head Down", "mdi:arrow-down", device_info),
-        OctoBedButton(client, "head_up", "Head Up", "mdi:arrow-up", device_info),
-        OctoBedButton(
-            client, "head_up_continuous", "Head Up (Continuous)", "mdi:arrow-up-bold", device_info
-        ),
         OctoBedButton(client, "stop", "Stop", "mdi:stop", device_info),
     ]
 
