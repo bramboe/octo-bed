@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Callable, Coroutine, Any
 
@@ -26,7 +25,8 @@ from .const import (
     CMD_PIN_SUFFIX,
     CMD_STOP,
     COMMAND_CHAR_UUID,
-    DELAY_AFTER_CONNECT_SEC,
+    COMMAND_HANDLE,
+    NOTIFY_HANDLE,
     NOTIFY_PIN_REQUIRED,
     NOTIFY_PIN_REQUIRED_ALT,
 )
@@ -80,28 +80,48 @@ class OctoBedClient:
                 disconnected_callback=_on_disconnect,
                 timeout=15.0,
             )
-            _LOGGER.info("Connected to Octo bed at %s", self._device.address)
+            _LOGGER.debug("Connected to Octo bed at %s", self._device.address)
 
-            # Delay for GATT enumeration (Bluetooth proxy needs time; per octo-esp32)
-            await asyncio.sleep(DELAY_AFTER_CONNECT_SEC)
+            # Enable notifications - commands and PIN keep-alive use handle 0x0011
+            # Find characteristic by UUID (most reliable) or handle
+            notified = False
+            for service in self._client.services:
+                for char in service.characteristics:
+                    is_cmd_char = (
+                        (char.uuid and str(char.uuid).lower() == COMMAND_CHAR_UUID.lower())
+                        or char.handle == COMMAND_HANDLE
+                        or getattr(char, "value_handle", None) == COMMAND_HANDLE
+                    )
+                    if is_cmd_char and "notify" in char.properties:
+                        await self._client.start_notify(
+                            char.uuid, self._notification_handler
+                        )
+                        _LOGGER.debug(
+                            "Enabled notifications on char handle %s", char.handle
+                        )
+                        notified = True
+                        break
+                if notified:
+                    break
+            if not notified:
+                # Fallback: enable on first characteristic with notify
+                for service in self._client.services:
+                    for char in service.characteristics:
+                        if "notify" in char.properties:
+                            await self._client.start_notify(
+                                char.uuid, self._notification_handler
+                            )
+                            _LOGGER.debug(
+                                "Enabled notifications (fallback) on handle %s",
+                                char.handle,
+                            )
+                            break
+                    else:
+                        continue
+                    break
 
-            # Enable notifications on 0xFFE1 - use UUID only (handle fails on BT proxy)
-            try:
-                await self._client.start_notify(
-                    COMMAND_CHAR_UUID, self._notification_handler
-                )
-                _LOGGER.debug("Enabled notifications on %s", COMMAND_CHAR_UUID)
-            except BleakError as err:
-                _LOGGER.warning("Could not enable notifications: %s", err)
-
-            # Send PIN (bed requires it before accepting commands)
-            pin_data = encode_pin(self._pin)
-            try:
-                await self._write_gatt_flexible(pin_data, response=True)
-                _LOGGER.debug("PIN sent (with response)")
-            except BleakError:
-                await self._write_gatt_flexible(pin_data, response=False)
-                _LOGGER.debug("PIN sent (no response)")
+            # Send PIN immediately after connection (bed may require it)
+            await self.send_pin()
 
             return True
         except BleakError as err:
@@ -153,23 +173,6 @@ class OctoBedClient:
         if self._client and self._client.is_connected:
             asyncio.create_task(self._send_command(encode_pin(self._pin)))
 
-    async def _write_gatt_flexible(
-        self, data: bytes, response: bool = False
-    ) -> None:
-        """Write to FFE1. Use UUID only (handle fails on proxy). Retry on 'characteristic not found'."""
-        try:
-            await self._client.write_gatt_char(
-                COMMAND_CHAR_UUID, data, response=response
-            )
-        except BleakError as err:
-            err_str = str(err).lower()
-            if "not found" in err_str and "characteristic" in err_str:
-                await self._client.write_gatt_char(
-                    COMMAND_CHAR_UUID, data, response=response
-                )
-            else:
-                raise
-
     async def _send_command(self, data: bytes) -> bool:
         """Send raw command to the bed."""
         if not await self.ensure_connected():
@@ -177,7 +180,25 @@ class OctoBedClient:
             return False
 
         try:
-            await self._write_gatt_flexible(data, response=False)
+            # Find command characteristic - Handle 0x0011 from packet captures
+            command_char = None
+            for service in self._client.services:
+                for char in service.characteristics:
+                    if char.handle == COMMAND_HANDLE:
+                        command_char = char
+                        break
+                if command_char:
+                    break
+
+            if command_char:
+                await self._client.write_gatt_char(
+                    command_char, data, response=False
+                )
+            else:
+                # Fallback: use UUID (handle may not work on all Bleak backends)
+                await self._client.write_gatt_char(
+                    COMMAND_CHAR_UUID, data, response=False
+                )
             _LOGGER.debug("Sent command: %s", data.hex())
             return True
         except BleakError as err:
