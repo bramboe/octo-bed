@@ -33,7 +33,8 @@
       "init": {
         "title": "Octo Bed options",
         "data": {
-          "full_travel_seconds": "Full travel time (seconds, 0% to 100%)"
+          "head_full_travel_seconds": "Head full travel (seconds)",
+          "feet_full_travel_seconds": "Feet full travel (seconds)"
         }
       }
     }
