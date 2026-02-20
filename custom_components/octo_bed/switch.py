@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS, DOMAIN
+from .const import CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS, DOMAIN, CMD_STOP
 from .octo_bed_client import OctoBedClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -115,7 +115,12 @@ class OctoBedBothToggleSwitch(SwitchEntity):
     @property
     def is_on(self) -> bool:
         """Return true if the bed is up (on) or down (off)."""
-        return self._is_on
+        # If there's an active task, use the task state
+        if self._task and not self._task.done():
+            return self._is_on
+        # Otherwise, check actual position from shared state
+        # Consider "on" if position is > 50%
+        return self._client.get_both_position() > 50
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Move both sides up."""
@@ -132,6 +137,7 @@ class OctoBedBothToggleSwitch(SwitchEntity):
         self.async_write_ha_state()
 
         self._task = asyncio.create_task(self._movement_loop(True))
+        self._client.register_movement_task(self._task)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Move both sides down."""
@@ -148,28 +154,50 @@ class OctoBedBothToggleSwitch(SwitchEntity):
         self.async_write_ha_state()
 
         self._task = asyncio.create_task(self._movement_loop(False))
+        self._client.register_movement_task(self._task)
 
     async def _movement_loop(self, going_up: bool) -> None:
         """Continuously send movement commands until switched off or full travel reached."""
         method = self._client.both_up if going_up else self._client.both_down
-
+        
+        # Get current position from shared state
+        start_position = self._client.get_both_position()
+        target_position = 100 if going_up else 0
+        position_delta = target_position - start_position
+        
         end_time = time.monotonic() + self._full_travel_seconds
+        start_time = time.monotonic()
         cancelled = False
         try:
             while time.monotonic() < end_time:
                 await method()
+                
+                # Update position based on elapsed time
+                elapsed = time.monotonic() - start_time
+                progress = min(1.0, elapsed / self._full_travel_seconds)
+                new_position = int(round(start_position + position_delta * progress))
+                self._client.set_both_position(new_position)
+                
                 await asyncio.sleep(0.1)
         except asyncio.CancelledError:
-            # Turned off by user
+            # Turned off by user or stop button
             cancelled = True
         finally:
-            # If we reached full-travel time (not cancelled), stop.
+            # If we reached full-travel time (not cancelled), update to final position and stop.
             if not cancelled:
+                self._client.set_both_position(target_position)
                 try:
-                    await self._client.stop()
+                    await self._client._send_command(CMD_STOP)
                 except Exception:  # noqa: BLE001
                     _LOGGER.debug("Failed to send stop after switch move", exc_info=True)
+            else:
+                # Update position based on how far we got
+                elapsed = time.monotonic() - start_time
+                progress = min(1.0, elapsed / self._full_travel_seconds)
+                final_position = int(round(start_position + position_delta * progress))
+                self._client.set_both_position(final_position)
 
+            # Reset state when task completes
             self._task = None
             self.async_write_ha_state()
 
@@ -213,6 +241,7 @@ class OctoBedMovementSwitch(SwitchEntity):
         self.async_write_ha_state()
 
         self._task = asyncio.create_task(self._movement_loop())
+        self._client.register_movement_task(self._task)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Stop movement."""
@@ -235,23 +264,59 @@ class OctoBedMovementSwitch(SwitchEntity):
             _LOGGER.error("Unknown movement action %s", self._action)
             return
 
+        # Determine which part we're moving and get current position
+        going_up = "up" in self._action
+        if "head" in self._action:
+            start_position = self._client.get_head_position()
+            target_position = 100 if going_up else 0
+            position_setter = self._client.set_head_position
+        elif "feet" in self._action:
+            start_position = self._client.get_feet_position()
+            target_position = 100 if going_up else 0
+            position_setter = self._client.set_feet_position
+        else:
+            # Unknown action, can't track position
+            start_position = 0
+            target_position = 100 if going_up else 0
+            position_setter = None
+        
+        position_delta = target_position - start_position
         end_time = time.monotonic() + self._full_travel_seconds
+        start_time = time.monotonic()
         cancelled = False
         try:
             while time.monotonic() < end_time:
                 await method()
+                
+                # Update position based on elapsed time
+                if position_setter:
+                    elapsed = time.monotonic() - start_time
+                    progress = min(1.0, elapsed / self._full_travel_seconds)
+                    new_position = int(round(start_position + position_delta * progress))
+                    position_setter(new_position)
+                
                 await asyncio.sleep(0.1)
         except asyncio.CancelledError:
-            # Turned off by user
+            # Turned off by user or stop button
             cancelled = True
         finally:
-            # If we reached full-travel time (not cancelled), stop and turn off the switch.
+            # If we reached full-travel time (not cancelled), update to final position and stop.
             if not cancelled:
+                if position_setter:
+                    position_setter(target_position)
                 try:
-                    await self._client.stop()
+                    await self._client._send_command(CMD_STOP)
                 except Exception:  # noqa: BLE001
                     _LOGGER.debug("Failed to send stop after switch move", exc_info=True)
+            else:
+                # Update position based on how far we got
+                if position_setter:
+                    elapsed = time.monotonic() - start_time
+                    progress = min(1.0, elapsed / self._full_travel_seconds)
+                    final_position = int(round(start_position + position_delta * progress))
+                    position_setter(final_position)
 
-                self._is_on = False
-                self._task = None
-                self.async_write_ha_state()
+            # Reset state when task completes
+            self._is_on = False
+            self._task = None
+            self.async_write_ha_state()
