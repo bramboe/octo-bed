@@ -3,7 +3,7 @@
   "name": "Octo Bed",
   "codeowners": ["@bramboe"],
   "config_flow": true,
-  "dependencies": ["bluetooth", "bluetooth_adapters"],
+  "dependencies": ["bluetooth"],
   "documentation": "https://github.com/bramboe/octo-bed",
   "integration_type": "device",
   "iot_class": "local_polling",
