@@ -10,7 +10,9 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from .const import (
+    CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_FULL_TRAVEL_SECONDS,
+    CONF_HEAD_FULL_TRAVEL_SECONDS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
 )
@@ -26,11 +28,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
     # Ensure options exist for existing entries (migration)
-    if not entry.options:
-        hass.config_entries.async_update_entry(
-            entry,
-            options={CONF_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS},
-        )
+    opts = dict(entry.options) if entry.options else {}
+    if not opts:
+        opts[CONF_FULL_TRAVEL_SECONDS] = DEFAULT_FULL_TRAVEL_SECONDS
+    default_travel = opts.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
+    if CONF_HEAD_FULL_TRAVEL_SECONDS not in opts:
+        opts[CONF_HEAD_FULL_TRAVEL_SECONDS] = default_travel
+    if CONF_FEET_FULL_TRAVEL_SECONDS not in opts:
+        opts[CONF_FEET_FULL_TRAVEL_SECONDS] = default_travel
+    if opts != (entry.options or {}):
+        hass.config_entries.async_update_entry(entry, options=opts)
 
     address = entry.data["address"]
     pin = entry.data["pin"]
