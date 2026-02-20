@@ -38,11 +38,8 @@ async def async_setup_entry(
     )
 
     entities: list[SwitchEntity] = [
-        OctoBedMovementSwitch(
-            client, "both_up", "Both Up", "mdi:arrow-up-bold", device_info, full_travel_seconds
-        ),
-        OctoBedMovementSwitch(
-            client, "both_down", "Both Down", "mdi:arrow-down-bold", device_info, full_travel_seconds
+        OctoBedBothToggleSwitch(
+            client, device_info, full_travel_seconds
         ),
         OctoBedMovementSwitch(
             client, "head_up", "Head Up", "mdi:arrow-up", device_info, full_travel_seconds
@@ -91,6 +88,89 @@ class OctoBedLightSwitch(SwitchEntity):
         """Turn the light off."""
         if await self._client.light_off():
             self._is_on = False
+            self.async_write_ha_state()
+
+
+class OctoBedBothToggleSwitch(SwitchEntity):
+    """Representation of a toggle switch for both bed sides (up/down)."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Both"
+    _attr_icon = "mdi:bed"
+    _attr_unique_id = "octo_bed_both"
+
+    def __init__(
+        self,
+        client: OctoBedClient,
+        device_info: DeviceInfo,
+        full_travel_seconds: int,
+    ) -> None:
+        """Initialize the both toggle switch."""
+        self._client = client
+        self._attr_device_info = device_info
+        self._is_on: bool = False  # False = down, True = up
+        self._full_travel_seconds = full_travel_seconds
+        self._task: asyncio.Task[None] | None = None
+
+    @property
+    def is_on(self) -> bool:
+        """Return true if the bed is up (on) or down (off)."""
+        return self._is_on
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Move both sides up."""
+        # Cancel any existing movement
+        if self._task and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            await self._client.stop()
+
+        self._is_on = True
+        self.async_write_ha_state()
+
+        self._task = asyncio.create_task(self._movement_loop(True))
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Move both sides down."""
+        # Cancel any existing movement
+        if self._task and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            await self._client.stop()
+
+        self._is_on = False
+        self.async_write_ha_state()
+
+        self._task = asyncio.create_task(self._movement_loop(False))
+
+    async def _movement_loop(self, going_up: bool) -> None:
+        """Continuously send movement commands until switched off or full travel reached."""
+        method = self._client.both_up if going_up else self._client.both_down
+
+        end_time = time.monotonic() + self._full_travel_seconds
+        cancelled = False
+        try:
+            while time.monotonic() < end_time:
+                await method()
+                await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            # Turned off by user
+            cancelled = True
+        finally:
+            # If we reached full-travel time (not cancelled), stop.
+            if not cancelled:
+                try:
+                    await self._client.stop()
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("Failed to send stop after switch move", exc_info=True)
+
+            self._task = None
             self.async_write_ha_state()
 
 
