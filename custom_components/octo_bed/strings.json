@@ -37,6 +37,13 @@
           "head_full_travel_seconds": "Head full travel (seconds)",
           "feet_full_travel_seconds": "Feet full travel (seconds)"
         }
+      },
+      "calibration_controls": {
+        "title": "Calibration controls",
+        "description": "{calibration_controls_description}",
+        "data": {
+          "show_calibration_buttons": "Show calibration buttons"
+        }
       }
     },
     "error": {
