@@ -16,7 +16,8 @@
         "title": "Enter PIN",
         "description": "The 4-digit PIN is required to establish a connection with your Octo bed. You can find this in your bed's manual or app.",
         "data": {
-          "pin": "PIN (4 digits)"
+          "pin": "PIN (4 digits)",
+          "device_name": "Device name"
         }
       }
     },
