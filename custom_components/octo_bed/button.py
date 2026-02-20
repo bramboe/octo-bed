@@ -132,7 +132,6 @@ class OctoBedCompleteCalibrationButton(ButtonEntity):
             options[CONF_HEAD_FULL_TRAVEL_SECONDS] = int(round(duration_seconds))
         else:
             options[CONF_FEET_FULL_TRAVEL_SECONDS] = int(round(duration_seconds))
-        self._entry.options = options
         self.hass.config_entries.async_update_entry(self._entry, options=options)
         # Move this part down for the same duration (return to 0%)
         await self._client.move_part_down_for_seconds(part, duration_seconds)
