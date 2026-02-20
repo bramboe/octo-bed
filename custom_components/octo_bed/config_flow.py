@@ -134,8 +134,8 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         address[i : i + 2] for i in range(0, 12, 2)
                     )
 
-                device_name = (user_input.get("device_name") or "Octo Bed").strip() or "Octo Bed"
-                title = f"Octo Bed ({address})" if device_name == "Octo Bed" else device_name
+                device_name = (user_input.get("device_name") or "").strip()
+                title = f"Octo Bed ({address})" if not device_name else device_name
                 return self.async_create_entry(
                     title=title,
                     data={
@@ -151,7 +151,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Required("pin"): str,
-                vol.Optional("device_name", default="Octo Bed"): str,
+                vol.Optional("device_name", default=""): str,
             }
         )
 
