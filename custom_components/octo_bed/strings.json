@@ -37,6 +37,10 @@
           "feet_full_travel_seconds": "Feet full travel (seconds)"
         }
       }
+    },
+    "error": {
+      "invalid_number": "Enter a valid number.",
+      "invalid_range": "Head and feet travel must be between 5 and 120 seconds."
     }
   }
 }
