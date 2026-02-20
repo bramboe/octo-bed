@@ -15,6 +15,7 @@ from homeassistant.data_entry_flow import FlowResult
 from .const import (
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_HEAD_FULL_TRAVEL_SECONDS,
+    CONF_SHOW_CALIBRATION_BUTTONS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
 )
@@ -183,18 +184,55 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
                     description_placeholders={"calibration_description": "Set full travel time (seconds) for head and feet. These are updated when you complete calibration, or use 30 s as default."},
                     errors={"base": "invalid_range"},
                 )
-            return self.async_create_entry(
-                title="",
-                data={
-                    CONF_HEAD_FULL_TRAVEL_SECONDS: head,
-                    CONF_FEET_FULL_TRAVEL_SECONDS: feet,
-                },
-            )
+            # Store and go to calibration controls step
+            self._pending_calibration = {
+                CONF_HEAD_FULL_TRAVEL_SECONDS: head,
+                CONF_FEET_FULL_TRAVEL_SECONDS: feet,
+            }
+            return await self.async_step_calibration_controls()
 
         return self.async_show_form(
             step_id="init",
             data_schema=self._options_schema(),
             description_placeholders={"calibration_description": "Set full travel time (seconds) for head and feet. These are updated when you complete calibration, or use 30 s as default."},
+        )
+
+    async def async_step_calibration_controls(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Calibration controls: show/hide calibration buttons."""
+        if user_input is not None:
+            if hasattr(self, "_pending_calibration"):
+                base = self._pending_calibration
+            else:
+                base = {
+                    CONF_HEAD_FULL_TRAVEL_SECONDS: self.config_entry.options.get(
+                        CONF_HEAD_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
+                    ),
+                    CONF_FEET_FULL_TRAVEL_SECONDS: self.config_entry.options.get(
+                        CONF_FEET_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
+                    ),
+                }
+            data = {
+                **base,
+                CONF_SHOW_CALIBRATION_BUTTONS: user_input[CONF_SHOW_CALIBRATION_BUTTONS],
+            }
+            return self.async_create_entry(title="", data=data)
+
+        current = self.config_entry.options.get(CONF_SHOW_CALIBRATION_BUTTONS, True)
+        return self.async_show_form(
+            step_id="calibration_controls",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_SHOW_CALIBRATION_BUTTONS,
+                        default=current,
+                    ): bool,
+                }
+            ),
+            description_placeholders={
+                "calibration_controls_description": "Show or hide the Calibrate head, Calibrate feet, and Complete calibration buttons on the device.",
+            },
         )
 
     def _options_schema(
