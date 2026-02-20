@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Callable, Coroutine, Any
 
 from bleak import BleakClient, BleakError
@@ -72,6 +73,10 @@ class OctoBedClient:
         self._position_callbacks: list[Callable[[str, int], None]] = []
         # Track active movements by part to prevent conflicts
         self._active_movements: dict[str, asyncio.Task[None]] = {}  # "head", "feet", "both"
+        # Calibration: part being calibrated and when it started
+        self._calibration_part: str | None = None
+        self._calibration_start_time: float | None = None
+        self._calibration_task: asyncio.Task[None] | None = None
 
     def _start_keepalive(self) -> None:
         if self._keepalive_task and not self._keepalive_task.done():
@@ -311,6 +316,94 @@ class OctoBedClient:
                 await self._send_command(CMD_STOP)
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("Failed to send stop after cancelling movement", exc_info=True)
+
+    async def start_calibration(self, part: str) -> None:
+        """Start calibration for head or feet: move that part up and start counting time."""
+        if part not in ("head", "feet"):
+            return
+        # Cancel any existing calibration
+        if self._calibration_task and not self._calibration_task.done():
+            self._calibration_task.cancel()
+            try:
+                await self._calibration_task
+            except asyncio.CancelledError:
+                pass
+            await self._send_command(CMD_STOP)
+        self._calibration_part = part
+        self._calibration_start_time = time.monotonic()
+        method = self.head_up if part == "head" else self.feet_up
+        self._calibration_task = asyncio.create_task(self._calibration_move_loop(method))
+        self.register_movement_task(self._calibration_task)
+        self.register_active_movement(part, self._calibration_task)
+
+    async def _calibration_move_loop(self, method: Callable[[], Coroutine[Any, Any, bool]]) -> None:
+        """Send movement command repeatedly until calibration is completed or cancelled."""
+        try:
+            while True:
+                await method()
+                await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            pass
+
+    async def complete_calibration(self) -> tuple[str | None, float]:
+        """Stop calibration movement and return (part, duration_seconds). Returns (None, 0) if no calibration active."""
+        if self._calibration_part is None or self._calibration_start_time is None:
+            return (None, 0.0)
+        part = self._calibration_part
+        duration = max(0.0, time.monotonic() - self._calibration_start_time)
+        if self._calibration_task and not self._calibration_task.done():
+            self._calibration_task.cancel()
+            try:
+                await self._calibration_task
+            except asyncio.CancelledError:
+                pass
+        await self._send_command(CMD_STOP)
+        self._calibration_part = None
+        self._calibration_start_time = None
+        self._calibration_task = None
+        if part in self._active_movements:
+            self._active_movements.pop(part, None)
+        _LOGGER.info("Calibration complete for %s: %.1f seconds (100% travel)", part, duration)
+        return (part, duration)
+
+    def is_calibrating(self) -> bool:
+        """Return True if a calibration session is active."""
+        return self._calibration_part is not None
+
+    def get_calibration_elapsed_seconds(self) -> float:
+        """Return seconds elapsed since calibration started, or 0 if not calibrating."""
+        if self._calibration_start_time is None:
+            return 0.0
+        return time.monotonic() - self._calibration_start_time
+
+    async def move_part_down_for_seconds(self, part: str, seconds: float) -> None:
+        """Move the given part (head or feet) down for the given duration, then set position to 0%."""
+        if part not in ("head", "feet") or seconds <= 0:
+            return
+        method = self.head_down if part == "head" else self.feet_down
+        setter = self.set_head_position if part == "head" else self.set_feet_position
+        setter(100)  # We're at 100% after calibration
+        end_time = time.monotonic() + seconds
+        start_time = time.monotonic()
+        current = asyncio.current_task()
+        if current is not None:
+            self.register_movement_task(current)
+            self.register_active_movement(part, current)
+        try:
+            while time.monotonic() < end_time:
+                await method()
+                elapsed = time.monotonic() - start_time
+                progress = min(1.0, elapsed / seconds)
+                setter(int(round(100 * (1.0 - progress))))
+                await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            elapsed = time.monotonic() - start_time
+            progress = min(1.0, elapsed / seconds)
+            setter(int(round(100 * (1.0 - progress))))
+            raise
+        finally:
+            await self._send_command(CMD_STOP)
+            setter(0)
 
     def get_head_position(self) -> int:
         """Get current head position (0-100)."""
