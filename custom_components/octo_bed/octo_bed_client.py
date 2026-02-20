@@ -101,10 +101,12 @@ class OctoBedClient:
             await asyncio.sleep(0.5)
             
             # Verify we can access services (connection is actually working)
-            if not self._client.services:
+            # services is a BleakGATTServiceCollection, not a list
+            service_count = len(list(self._client.services)) if self._client.services else 0
+            if service_count == 0:
                 _LOGGER.warning("No services discovered - connection may be incomplete")
             else:
-                _LOGGER.debug("Discovered %d service(s)", len(self._client.services))
+                _LOGGER.debug("Discovered %d service(s)", service_count)
 
             # Enable notifications - commands and PIN keep-alive use handle 0x0011
             # Find characteristic by UUID (most reliable) or handle
