@@ -2,10 +2,9 @@
 
 DOMAIN = "octo_bed"
 
-# BLE - Service 0xFFE0, Characteristic 0xFFE1 (per packet captures and octo-esp32)
-# Use UUID only - handle fails on Bluetooth proxy
-OCTO_BED_SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"
-COMMAND_CHAR_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"
+# BLE
+OCTO_BED_SERVICE_UUID = "0000fff0-0000-1000-8000-00805f9b34fb"
+COMMAND_CHAR_UUID = "0000fff1-0000-1000-8000-00805f9b34fb"
 COMMAND_HANDLE = 0x0011
 NOTIFY_HANDLE = 0x0012
 
@@ -40,8 +39,3 @@ CMD_PIN_SUFFIX = bytes.fromhex("40")
 NOTIFY_PIN_REQUIRED = bytes.fromhex("40214400001b40")
 NOTIFY_PIN_REQUIRED_ALT = bytes.fromhex("40217f0000e040")
 NOTIFY_PIN_ACCEPTED = bytes.fromhex("40214300011a0140")
-
-# Delay after connect before first write (Bluetooth proxy needs time for GATT enumeration)
-DELAY_AFTER_CONNECT_SEC = 1.0
-# Send movement command this often (340ms = matches official app capture)
-MOVEMENT_COMMAND_INTERVAL_SEC = 0.34
