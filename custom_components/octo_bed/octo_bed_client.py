@@ -8,7 +8,13 @@ from typing import Callable, Coroutine, Any
 from bleak import BleakClient, BleakError
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
-from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
+from bleak_retry_connector import (
+    BleakClientWithServiceCache,
+    BleakConnectionError,
+    BleakNotFoundError,
+    BleakOutOfConnectionSlotsError,
+    establish_connection,
+)
 
 from .const import (
     CMD_BOTH_DOWN,
@@ -73,12 +79,14 @@ class OctoBedClient:
                     self._disconnect_callback()
 
             self._intentional_disconnect = False
+            # Use longer timeout for proxy/ESP32; more attempts for flaky discovery
             self._client = await establish_connection(
                 BleakClientWithServiceCache,
                 self._device,
                 "Octo Bed",
                 disconnected_callback=_on_disconnect,
-                timeout=15.0,
+                timeout=25.0,
+                max_attempts=6,
             )
             _LOGGER.debug("Connected to Octo bed at %s", self._device.address)
 
@@ -115,15 +123,53 @@ class OctoBedClient:
                                 "Enabled notifications (fallback) on handle %s",
                                 char.handle,
                             )
+                            notified = True
                             break
-                    else:
-                        continue
-                    break
+                    if notified:
+                        break
+            if not notified:
+                # Discovery may be incomplete (e.g. proxy/bed returns ATT errors);
+                # try enabling notify by known command UUID anyway
+                try:
+                    await self._client.start_notify(
+                        COMMAND_CHAR_UUID, self._notification_handler
+                    )
+                    _LOGGER.debug(
+                        "Enabled notifications by UUID %s (discovery fallback)",
+                        COMMAND_CHAR_UUID,
+                    )
+                    notified = True
+                except BleakError as e:
+                    _LOGGER.warning(
+                        "Could not enable notifications (UUID fallback failed): %s", e
+                    )
+            if not notified:
+                _LOGGER.warning(
+                    "Could not enable notifications; PIN keep-alive may not work"
+                )
 
             # Send PIN immediately after connection (bed may require it)
             await self.send_pin()
 
             return True
+        except BleakNotFoundError as err:
+            _LOGGER.error(
+                "Octo bed not found at %s (out of range or not advertising). "
+                "Ensure ESPHome Bluetooth proxy is in range and press a button on the remote to wake the bed: %s",
+                self._device.address,
+                err,
+            )
+            return False
+        except BleakOutOfConnectionSlotsError as err:
+            _LOGGER.error(
+                "No free BLE connection slots (proxy/adapter busy). "
+                "Disconnect other BLE devices or add another proxy: %s",
+                err,
+            )
+            return False
+        except BleakConnectionError as err:
+            _LOGGER.error("Failed to connect to Octo bed: %s", err)
+            return False
         except BleakError as err:
             _LOGGER.error("Failed to connect to Octo bed: %s", err)
             return False
