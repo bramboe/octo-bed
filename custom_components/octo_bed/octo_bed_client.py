@@ -4,18 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Callable, Coroutine, Any
+from typing import Any, Callable, Coroutine
 
 from bleak import BleakClient, BleakError
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
-from bleak_retry_connector import (
-    BleakClientWithServiceCache,
-    BleakConnectionError,
-    BleakNotFoundError,
-    BleakOutOfConnectionSlotsError,
-    establish_connection,
-)
+from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 
 from .const import (
     CMD_BOTH_DOWN,
@@ -39,6 +33,8 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+KEEP_ALIVE_INTERVAL_SECONDS = 30.0
 
 
 def encode_pin(pin: str) -> bytes:
@@ -70,43 +66,32 @@ class OctoBedClient:
         self._device_resolver = device_resolver
         self._pin_sent = False
         self._intentional_disconnect = False
+        self._keep_alive_task: asyncio.Task[None] | None = None
 
     async def connect(self) -> bool:
         """Connect to the bed and authenticate with PIN."""
         try:
             def _on_disconnect(client: BleakClient) -> None:
                 self._client = None
+                self._cancel_keep_alive()
                 if not self._intentional_disconnect and self._disconnect_callback:
                     self._disconnect_callback()
 
             self._intentional_disconnect = False
-            # Use longer timeout for proxy/ESP32; more attempts for flaky discovery
-            _LOGGER.info("Establishing connection to Octo bed at %s", self._device.address)
             self._client = await establish_connection(
                 BleakClientWithServiceCache,
                 self._device,
                 "Octo Bed",
                 disconnected_callback=_on_disconnect,
-                timeout=30.0,  # Increased timeout for proxy connections
-                max_attempts=6,
+                timeout=15.0,
             )
-            
-            if not self._client.is_connected:
-                _LOGGER.error("Connection established but client reports not connected")
-                return False
-                
-            _LOGGER.info("BLE connection established to Octo bed at %s", self._device.address)
+            _LOGGER.debug("Connected to Octo bed at %s", self._device.address)
 
-            # Wait a moment for service discovery to complete (especially important for proxy)
-            await asyncio.sleep(0.5)
-            
-            # Verify we can access services (connection is actually working)
-            # services is a BleakGATTServiceCollection, not a list
-            service_count = len(list(self._client.services)) if self._client.services else 0
-            if service_count == 0:
-                _LOGGER.warning("No services discovered - connection may be incomplete")
-            else:
-                _LOGGER.debug("Discovered %d service(s)", service_count)
+            # Ensure services/characteristics are populated (required on some backends)
+            try:
+                await self._client.get_services()
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Unable to fetch services: %s", err)
 
             # Enable notifications - commands and PIN keep-alive use handle 0x0011
             # Find characteristic by UUID (most reliable) or handle
@@ -122,8 +107,8 @@ class OctoBedClient:
                         await self._client.start_notify(
                             char.uuid, self._notification_handler
                         )
-                        _LOGGER.info(
-                            "Enabled notifications on command characteristic (handle %s)", char.handle
+                        _LOGGER.debug(
+                            "Enabled notifications on char handle %s", char.handle
                         )
                         notified = True
                         break
@@ -137,81 +122,59 @@ class OctoBedClient:
                             await self._client.start_notify(
                                 char.uuid, self._notification_handler
                             )
-                            _LOGGER.info(
+                            _LOGGER.debug(
                                 "Enabled notifications (fallback) on handle %s",
                                 char.handle,
                             )
-                            notified = True
                             break
-                    if notified:
-                        break
-            if not notified:
-                # Discovery may be incomplete (e.g. proxy/bed returns ATT errors);
-                # try enabling notify by known command UUID anyway
-                try:
-                    await self._client.start_notify(
-                        COMMAND_CHAR_UUID, self._notification_handler
-                    )
-                    _LOGGER.info(
-                        "Enabled notifications by UUID %s (discovery fallback)",
-                        COMMAND_CHAR_UUID,
-                    )
-                    notified = True
-                except BleakError as e:
-                    _LOGGER.warning(
-                        "Could not enable notifications (UUID fallback failed): %s", e
-                    )
-            if not notified:
-                _LOGGER.warning(
-                    "Could not enable notifications; PIN keep-alive may not work"
-                )
+                    else:
+                        continue
+                    break
 
             # Send PIN immediately after connection (bed may require it)
-            _LOGGER.info("Sending PIN authentication to bed")
-            pin_sent = await self.send_pin()
-            if not pin_sent:
-                _LOGGER.error("Failed to send PIN - connection may not be authenticated")
-                # Don't fail connection yet - bed might still work, just log warning
-            else:
-                _LOGGER.info("PIN sent successfully")
-                # Give bed a moment to process PIN
-                await asyncio.sleep(0.3)
-            
-            # Verify connection is still alive and we can write
-            if not self._client.is_connected:
-                _LOGGER.error("Connection lost after PIN send")
-                return False
+            await self.send_pin()
+            self._start_keep_alive()
 
-            _LOGGER.info("Connection to Octo bed established and authenticated")
             return True
-        except BleakNotFoundError as err:
-            _LOGGER.error(
-                "Octo bed not found at %s (out of range or not advertising). "
-                "Ensure ESPHome Bluetooth proxy is in range and press a button on the remote to wake the bed: %s",
-                self._device.address,
-                err,
-            )
-            return False
-        except BleakOutOfConnectionSlotsError as err:
-            _LOGGER.error(
-                "No free BLE connection slots (proxy/adapter busy). "
-                "Disconnect other BLE devices or add another proxy: %s",
-                err,
-            )
-            return False
-        except BleakConnectionError as err:
-            _LOGGER.error("Failed to connect to Octo bed: %s", err)
-            return False
         except BleakError as err:
             _LOGGER.error("Failed to connect to Octo bed: %s", err)
+            return False
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Unexpected error connecting to Octo bed: %s", err)
             return False
 
     async def disconnect(self) -> None:
         """Disconnect from the bed."""
         self._intentional_disconnect = True
+        self._cancel_keep_alive()
         if self._client and self._client.is_connected:
             await self._client.disconnect()
         self._client = None
+
+    def _cancel_keep_alive(self) -> None:
+        task = self._keep_alive_task
+        self._keep_alive_task = None
+        if task and not task.done():
+            task.cancel()
+
+    def _start_keep_alive(self) -> None:
+        if self._keep_alive_task and not self._keep_alive_task.done():
+            return
+        self._keep_alive_task = asyncio.create_task(self._keep_alive_loop())
+
+    async def _keep_alive_loop(self) -> None:
+        """Periodically send PIN auth to maintain connection."""
+        while self._client and self._client.is_connected and not self._intentional_disconnect:
+            try:
+                await asyncio.sleep(KEEP_ALIVE_INTERVAL_SECONDS)
+                if self._client and self._client.is_connected:
+                    _LOGGER.debug("Keep-alive: sending PIN auth")
+                    await self.send_pin()
+            except asyncio.CancelledError:
+                return
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Keep-alive loop exiting: %s", err)
+                return
 
     async def ensure_connected(self) -> bool:
         """Ensure we are connected; reconnect if needed."""
@@ -245,6 +208,7 @@ class OctoBedClient:
 
     def _send_pin_async(self) -> None:
         """Send PIN asynchronously - called from notification handler."""
+        # Schedule on the event loop
         if self._client and self._client.is_connected:
             asyncio.create_task(self._send_command(encode_pin(self._pin)))
 
@@ -255,45 +219,15 @@ class OctoBedClient:
             return False
 
         try:
-            # Find command characteristic - Handle 0x0011 from packet captures
-            command_char = None
-            for service in self._client.services:
-                for char in service.characteristics:
-                    if char.handle == COMMAND_HANDLE:
-                        command_char = char
-                        break
-                if command_char:
-                    break
-
-            if command_char:
-                await self._client.write_gatt_char(
-                    command_char, data, response=False
-                )
-                _LOGGER.debug("Sent command via handle %s: %s", command_char.handle, data.hex())
-            else:
-                # Fallback: use UUID (handle may not work on all Bleak backends/proxies)
-                try:
-                    await self._client.write_gatt_char(
-                        COMMAND_CHAR_UUID, data, response=False
-                    )
-                    _LOGGER.debug("Sent command via UUID %s: %s", COMMAND_CHAR_UUID, data.hex())
-                except BleakError as uuid_err:
-                    # Last resort: try writing to handle directly as integer
-                    _LOGGER.debug("UUID write failed, trying direct handle write: %s", uuid_err)
-                    try:
-                        # Some backends allow direct handle access
-                        await self._client.write_gatt_char(
-                            COMMAND_HANDLE, data, response=False
-                        )
-                        _LOGGER.debug("Sent command via direct handle %s: %s", COMMAND_HANDLE, data.hex())
-                    except (BleakError, AttributeError, TypeError):
-                        raise uuid_err  # Re-raise original UUID error
+            # Prefer UUID write (matches known-working Bleak script)
+            await self._client.write_gatt_char(COMMAND_CHAR_UUID, data, response=False)
+            _LOGGER.debug("Sent command: %s", data.hex())
             return True
         except BleakError as err:
             _LOGGER.error("Failed to send command: %s", err)
-            # If write fails, connection might be broken
-            if self._client and not self._client.is_connected:
-                _LOGGER.warning("Connection lost during command send")
+            return False
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Unexpected error sending command: %s", err)
             return False
 
     async def send_pin(self) -> bool:
