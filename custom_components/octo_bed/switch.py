@@ -36,7 +36,7 @@ async def async_setup_entry(
 
     device_info = DeviceInfo(
         identifiers={(DOMAIN, entry.unique_id or entry.entry_id)},
-        name="Octo Bed",
+        name=entry.title or "Octo Bed",
         manufacturer="Octo",
     )
 
