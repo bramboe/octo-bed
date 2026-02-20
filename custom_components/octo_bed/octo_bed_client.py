@@ -70,6 +70,8 @@ class OctoBedClient:
         self._head_position: int = 0
         self._feet_position: int = 0
         self._position_callbacks: list[Callable[[str, int], None]] = []
+        # Track active movements by part to prevent conflicts
+        self._active_movements: dict[str, asyncio.Task[None]] = {}  # "head", "feet", "both"
 
     def _start_keepalive(self) -> None:
         if self._keepalive_task and not self._keepalive_task.done():
@@ -254,6 +256,61 @@ class OctoBedClient:
         self._active_movement_tasks.add(task)
         # Remove task when it completes
         task.add_done_callback(self._active_movement_tasks.discard)
+
+    def register_active_movement(self, part: str, task: asyncio.Task[None]) -> None:
+        """Register an active movement for a specific part (head, feet, or both).
+        This will cancel any conflicting movements.
+        """
+        # Cancel conflicting movements
+        if part == "head":
+            # Cancel feet and both if they're active
+            self._cancel_movement("feet")
+            self._cancel_movement("both")
+        elif part == "feet":
+            # Cancel head and both if they're active
+            self._cancel_movement("head")
+            self._cancel_movement("both")
+        elif part == "both":
+            # Cancel head and feet if they're active
+            self._cancel_movement("head")
+            self._cancel_movement("feet")
+        
+        # Register this movement
+        if part in self._active_movements:
+            old_task = self._active_movements[part]
+            if not old_task.done():
+                old_task.cancel()
+        
+        self._active_movements[part] = task
+        
+        # Remove from active movements when task completes
+        def cleanup(task: asyncio.Task[None]) -> None:
+            if self._active_movements.get(part) == task:
+                self._active_movements.pop(part, None)
+        task.add_done_callback(cleanup)
+
+    def _cancel_movement(self, part: str) -> None:
+        """Cancel an active movement for a specific part."""
+        if part in self._active_movements:
+            task = self._active_movements[part]
+            if not task.done():
+                task.cancel()
+                try:
+                    # Wait briefly for cancellation to complete
+                    asyncio.create_task(self._wait_for_cancellation(task))
+                except Exception:  # noqa: BLE001
+                    pass
+
+    async def _wait_for_cancellation(self, task: asyncio.Task[None]) -> None:
+        """Wait for a task to be cancelled and send stop command."""
+        try:
+            await task
+        except asyncio.CancelledError:
+            # Send stop command to bed when movement is cancelled
+            try:
+                await self._send_command(CMD_STOP)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Failed to send stop after cancelling movement", exc_info=True)
 
     def get_head_position(self) -> int:
         """Get current head position (0-100)."""
