@@ -35,13 +35,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     address = entry.data["address"]
     pin = entry.data["pin"]
 
-    # Resolve Bluetooth device
+    # Prefer connectable adapters (e.g. ESPHome Bluetooth proxy) so connections go through proxy
+    connectable_count = bluetooth.async_scanner_count(hass, connectable=True)
+    if connectable_count == 0:
+        _LOGGER.warning(
+            "No connectable Bluetooth adapter found. Add an ESPHome Bluetooth proxy "
+            "(or another connectable adapter) so the Octo bed can be reached."
+        )
+
+    # Resolve Bluetooth device from HA's bluetooth stack (uses proxy if it sees the bed)
     bleak_device = bluetooth.async_ble_device_from_address(
         hass, address, connectable=True
     )
 
     if not bleak_device:
-        _LOGGER.error("Could not find Octo bed at address %s", address)
+        _LOGGER.error(
+            "Could not find Octo bed at address %s. Ensure the bed is powered on, "
+            "in range of an ESPHome Bluetooth proxy (or connectable adapter), and "
+            "try pressing a button on the remote to wake the bed.",
+            address,
+        )
         return False
 
     async def _get_device():
