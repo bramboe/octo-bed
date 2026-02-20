@@ -19,7 +19,6 @@ from .const import (
     CONF_FULL_TRAVEL_SECONDS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
-    MOVEMENT_COMMAND_INTERVAL_SEC,
 )
 from .octo_bed_client import OctoBedClient
 
@@ -126,7 +125,7 @@ class OctoBedCover(CoverEntity):
         )
 
     async def _async_move_to_position(self, target: int) -> None:
-        """Move cover to target position (0-100). Sends movement command every 340ms (per official app)."""
+        """Move cover to target position (0-100)."""
         current = self._current_position if self._current_position is not None else 0
         if target == current:
             return
@@ -147,15 +146,9 @@ class OctoBedCover(CoverEntity):
             _LOGGER.error("Unknown command %s for cover %s", cmd, self._cover_type)
             return
 
-        start = asyncio.get_running_loop().time()
+        await method()
         try:
-            while asyncio.get_running_loop().time() - start < duration:
-                if self._move_task and self._move_task.cancelled():
-                    break
-                if not await method():
-                    _LOGGER.warning("Movement command failed")
-                    break
-                await asyncio.sleep(MOVEMENT_COMMAND_INTERVAL_SEC)
+            await asyncio.sleep(duration)
         except asyncio.CancelledError:
             pass
         finally:
@@ -177,9 +170,9 @@ class OctoBedCover(CoverEntity):
         """Close the cover (move to 0%)."""
         await self.async_set_cover_position(0)
 
-    async def async_set_cover_position(self, position: int | None = None, **kwargs: Any) -> None:
+    async def async_set_cover_position(self, **kwargs: Any) -> None:
         """Move the cover to a specific position (0-100)."""
-        position = position if position is not None else kwargs.get("position", 0)
+        position = kwargs.get("position", 0)
         if position < 0 or position > 100:
             return
 
