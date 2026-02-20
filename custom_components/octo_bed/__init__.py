@@ -20,7 +20,12 @@ from .octo_bed_client import OctoBedClient
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SWITCH, Platform.COVER]
+PLATFORMS: list[Platform] = [
+    Platform.BUTTON,
+    Platform.SWITCH,
+    Platform.COVER,
+    Platform.SENSOR,
+]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
