@@ -20,6 +20,7 @@ from .const import (
     CONF_FULL_TRAVEL_SECONDS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
+    CMD_STOP,
 )
 from .octo_bed_client import OctoBedClient
 
@@ -75,34 +76,51 @@ class OctoBedCover(CoverEntity):
         self._attr_unique_id = f"octo_bed_cover_{cover_type}"
         self._attr_device_info = device_info
         self._entry = entry
-        self._current_position: int | None = 0  # Assume down at start
         self._target_position: int | None = None
         self._move_task: asyncio.Task[None] | None = None
         self._attr_is_closed = True  # 0% = closed
         self._current_command: str | None = None  # Track which command is currently being sent
+        # Register for position updates
+        self._client.register_position_callback(self._on_position_changed)
 
     @property
     def current_cover_position(self) -> int | None:
-        """Return current position (0 = down, 100 = up)."""
-        return self._current_position
+        """Return current position (0 = down, 100 = up) from shared state."""
+        if self._cover_type == "head":
+            return self._client.get_head_position()
+        elif self._cover_type == "feet":
+            return self._client.get_feet_position()
+        else:  # both
+            return self._client.get_both_position()
 
     @property
     def is_closing(self) -> bool:
         """Return if the cover is closing."""
+        current = self.current_cover_position or 0
         return (
             self._move_task is not None
             and self._target_position is not None
-            and self._target_position < (self._current_position or 0)
+            and self._target_position < current
         )
 
     @property
     def is_opening(self) -> bool:
         """Return if the cover is opening."""
+        current = self.current_cover_position or 0
         return (
             self._move_task is not None
             and self._target_position is not None
-            and self._target_position > (self._current_position or 0)
+            and self._target_position > current
         )
+
+    def _on_position_changed(self, part: str, position: int) -> None:
+        """Callback when position changes in shared state."""
+        # Update our display if this change affects us
+        if (self._cover_type == "head" and part == "head") or \
+           (self._cover_type == "feet" and part == "feet") or \
+           (self._cover_type == "both" and part in ("head", "feet")):
+            self._attr_is_closed = position == 0
+            self.async_write_ha_state()
 
     def _get_up_command(self) -> str:
         """Get the up command method name for this cover type."""
@@ -128,7 +146,14 @@ class OctoBedCover(CoverEntity):
 
     async def _async_move_to_position(self, target: int) -> None:
         """Move cover to target position (0-100)."""
-        current = self._current_position if self._current_position is not None else 0
+        # Get current position from shared state
+        if self._cover_type == "head":
+            current = self._client.get_head_position()
+        elif self._cover_type == "feet":
+            current = self._client.get_feet_position()
+        else:  # both
+            current = self._client.get_both_position()
+        
         if target == current:
             return
 
@@ -173,24 +198,42 @@ class OctoBedCover(CoverEntity):
                 elapsed = now - start_time
                 frac = max(0.0, min(1.0, elapsed / duration)) if duration > 0 else 1.0
                 new_pos = int(round(current + (target - current) * frac))
-                if new_pos != self._current_position:
-                    self._current_position = new_pos
-                    self._attr_is_closed = new_pos == 0
-                    self.async_write_ha_state()
+                
+                # Update shared state based on cover type
+                if self._cover_type == "head":
+                    self._client.set_head_position(new_pos)
+                elif self._cover_type == "feet":
+                    self._client.set_feet_position(new_pos)
+                else:  # both
+                    self._client.set_both_position(new_pos)
+                
+                self._attr_is_closed = new_pos == 0
+                self.async_write_ha_state()
                 await asyncio.sleep(0.375)  # Match bed's natural command interval (~375ms from captures)
         except asyncio.CancelledError:
-            # Stop requested (either user stop or new target)
+            # Stop requested (either user stop, stop button, or new target)
+            # Send stop command to bed
+            try:
+                await self._client._send_command(CMD_STOP)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Failed to send stop after cover move cancelled", exc_info=True)
             raise
         try:
-            await self._client.stop()
+            await self._client._send_command(CMD_STOP)
         except Exception:  # noqa: BLE001
             _LOGGER.debug("Failed to send stop after cover move", exc_info=True)
 
         if not self._move_task or self._move_task.cancelled():
             return
 
-        # Snap to exact target at the end of the move
-        self._current_position = target
+        # Snap to exact target at the end of the move and update shared state
+        if self._cover_type == "head":
+            self._client.set_head_position(target)
+        elif self._cover_type == "feet":
+            self._client.set_feet_position(target)
+        else:  # both
+            self._client.set_both_position(target)
+        
         self._target_position = None
         self._move_task = None
         self._current_command = None
@@ -220,6 +263,7 @@ class OctoBedCover(CoverEntity):
 
         self._target_position = position
         self._move_task = asyncio.create_task(self._async_move_to_position(position))
+        self._client.register_movement_task(self._move_task)
         self.async_write_ha_state()
 
     async def async_stop_cover(self, **kwargs: Any) -> None:
