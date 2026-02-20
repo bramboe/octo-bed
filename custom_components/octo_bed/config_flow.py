@@ -13,9 +13,10 @@ from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
 from homeassistant.data_entry_flow import FlowResult
 
 from .const import (
+    CONF_FEET_FULL_TRAVEL_SECONDS,
+    CONF_HEAD_FULL_TRAVEL_SECONDS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
-    CONF_FULL_TRAVEL_SECONDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -139,7 +140,8 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "pin": pin,
                     },
                     options={
-                        CONF_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
+                        CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
+                        CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
                     },
                 )
 
@@ -166,16 +168,23 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        current = self.config_entry.options.get(
-            CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
+        current_head = self.config_entry.options.get(
+            CONF_HEAD_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
+        )
+        current_feet = self.config_entry.options.get(
+            CONF_FEET_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
         )
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        CONF_FULL_TRAVEL_SECONDS,
-                        default=current,
+                        CONF_HEAD_FULL_TRAVEL_SECONDS,
+                        default=current_head,
+                    ): vol.All(vol.Coerce(int), vol.Range(min=5, max=120)),
+                    vol.Required(
+                        CONF_FEET_FULL_TRAVEL_SECONDS,
+                        default=current_feet,
                     ): vol.All(vol.Coerce(int), vol.Range(min=5, max=120)),
                 }
             ),
