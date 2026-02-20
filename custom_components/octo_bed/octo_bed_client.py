@@ -254,8 +254,22 @@ class OctoBedClient:
 
     async def light_on(self) -> bool:
         """Turn bed light on."""
-        return await self._send_command(CMD_LIGHT_ON)
+        # Light commands appear to require a fresh auth on some beds.
+        await self.send_pin()
+        await asyncio.sleep(0.2)
+        ok = await self._send_command(CMD_LIGHT_ON)
+        if ok:
+            # Retry once for reliability (matches "write command" behaviour in captures).
+            await asyncio.sleep(0.1)
+            await self._send_command(CMD_LIGHT_ON)
+        return ok
 
     async def light_off(self) -> bool:
         """Turn bed light off."""
-        return await self._send_command(CMD_LIGHT_OFF)
+        await self.send_pin()
+        await asyncio.sleep(0.2)
+        ok = await self._send_command(CMD_LIGHT_OFF)
+        if ok:
+            await asyncio.sleep(0.1)
+            await self._send_command(CMD_LIGHT_OFF)
+        return ok
