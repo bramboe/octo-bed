@@ -166,26 +166,50 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
     ) -> FlowResult:
         """Manage the options."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            try:
+                head = int(user_input.get(CONF_HEAD_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
+                feet = int(user_input.get(CONF_FEET_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
+            except (TypeError, ValueError):
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=self._options_schema(),
+                    errors={"base": "invalid_number"},
+                )
+            if not (5 <= head <= 120 and 5 <= feet <= 120):
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=self._options_schema(user_input),
+                    errors={"base": "invalid_range"},
+                )
+            return self.async_create_entry(
+                title="",
+                data={
+                    CONF_HEAD_FULL_TRAVEL_SECONDS: head,
+                    CONF_FEET_FULL_TRAVEL_SECONDS: feet,
+                },
+            )
 
-        current_head = self.config_entry.options.get(
-            CONF_HEAD_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
-        )
-        current_feet = self.config_entry.options.get(
-            CONF_FEET_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
-        )
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_HEAD_FULL_TRAVEL_SECONDS,
-                        default=current_head,
-                    ): vol.All(vol.Coerce(int), vol.Range(min=5, max=120)),
-                    vol.Required(
-                        CONF_FEET_FULL_TRAVEL_SECONDS,
-                        default=current_feet,
-                    ): vol.All(vol.Coerce(int), vol.Range(min=5, max=120)),
-                }
-            ),
+            data_schema=self._options_schema(),
+        )
+
+    def _options_schema(
+        self, input_values: dict[str, Any] | None = None
+    ) -> vol.Schema:
+        """Build options schema with number input fields (default 30 if no calibration)."""
+        opts = input_values or self.config_entry.options
+        current_head = opts.get(CONF_HEAD_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
+        current_feet = opts.get(CONF_FEET_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
+        return vol.Schema(
+            {
+                vol.Required(
+                    CONF_HEAD_FULL_TRAVEL_SECONDS,
+                    default=str(current_head),
+                ): str,
+                vol.Required(
+                    CONF_FEET_FULL_TRAVEL_SECONDS,
+                    default=str(current_feet),
+                ): str,
+            }
         )
