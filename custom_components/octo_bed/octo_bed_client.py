@@ -405,6 +405,14 @@ class OctoBedClient:
             await self._send_command(CMD_STOP)
             setter(0)
 
+    def is_connected(self) -> bool:
+        """Return True if connected to the bed (Bluetooth proxy)."""
+        return self._client is not None and self._client.is_connected
+
+    def get_device_address(self) -> str:
+        """Return the Bluetooth device MAC address."""
+        return self._device.address
+
     def get_head_position(self) -> int:
         """Get current head position (0-100)."""
         return self._head_position
