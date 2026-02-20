@@ -13,6 +13,7 @@ from .const import (
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_FULL_TRAVEL_SECONDS,
     CONF_HEAD_FULL_TRAVEL_SECONDS,
+    CONF_SHOW_CALIBRATION_BUTTONS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
 )
@@ -41,6 +42,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         opts[CONF_HEAD_FULL_TRAVEL_SECONDS] = default_travel
     if CONF_FEET_FULL_TRAVEL_SECONDS not in opts:
         opts[CONF_FEET_FULL_TRAVEL_SECONDS] = default_travel
+    if CONF_SHOW_CALIBRATION_BUTTONS not in opts:
+        opts[CONF_SHOW_CALIBRATION_BUTTONS] = True
     if opts != (entry.options or {}):
         hass.config_entries.async_update_entry(entry, options=opts)
 
