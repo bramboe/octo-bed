@@ -32,6 +32,7 @@ async def async_setup_entry(
     )
 
     sensors = [
+        OctoBedCalibrationStatusSensor(client, device_info),
         OctoBedMacAddressSensor(client, device_info),
         OctoBedHeadPositionSensor(client, device_info),
         OctoBedFeetPositionSensor(client, device_info),
@@ -39,6 +40,50 @@ async def async_setup_entry(
     ]
 
     async_add_entities(sensors)
+
+
+class OctoBedCalibrationStatusSensor(SensorEntity):
+    """Sensor showing current calibration status (Configuration section)."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:ruler"
+    _attr_unique_id = "octo_bed_calibration_status"
+    _attr_name = "Calibration status"
+
+    def __init__(self, client: OctoBedClient, device_info: DeviceInfo) -> None:
+        """Initialize the calibration status sensor."""
+        self._client = client
+        self._attr_device_info = device_info
+        client.register_calibration_state_callback(self._on_calibration_state_changed)
+
+    @callback
+    def _on_calibration_state_changed(self) -> None:
+        """Update state when calibration state changes."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> str:
+        """Return human-readable calibration status for display."""
+        state, part = self._client.get_calibration_status()
+        if state == "idle":
+            return "Inactive"
+        if state == "tracking":
+            return f"Measuring full travel ({part})" if part else "Measuring full travel"
+        if state == "returning":
+            return f"Returning to start ({part})" if part else "Returning to start"
+        return "Inactive"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str | None]:
+        """Return raw state and part for automation."""
+        state, part = self._client.get_calibration_status()
+        raw = "idle"
+        if state == "tracking":
+            raw = f"tracking_{part}" if part else "tracking"
+        elif state == "returning":
+            raw = f"returning_{part}" if part else "returning"
+        return {"part": part, "state": raw}
 
 
 class OctoBedDiagnosticSensor(SensorEntity):
