@@ -11,10 +11,22 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import CONF_IS_GROUP, CONF_MEMBER_ENTRY_IDS, DOMAIN
 from .octo_bed_client import OctoBedClient
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _is_entry_in_paired_group(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Return True if this bed entry is a member of a 'Both beds' group."""
+    if entry.data.get(CONF_IS_GROUP):
+        return False
+    for other in hass.config_entries.async_entries(DOMAIN):
+        if not other.data.get(CONF_IS_GROUP):
+            continue
+        if entry.entry_id in (other.data.get(CONF_MEMBER_ENTRY_IDS) or []):
+            return True
+    return False
 
 
 async def async_setup_entry(
@@ -25,6 +37,7 @@ async def async_setup_entry(
     """Set up Octo Bed diagnostic sensors from a config entry."""
     client: OctoBedClient = hass.data[DOMAIN][entry.entry_id]
     uid = entry.unique_id or entry.entry_id
+    calibration_disabled_paired = _is_entry_in_paired_group(hass, entry)
 
     device_info = DeviceInfo(
         identifiers={(DOMAIN, uid)},
@@ -33,7 +46,7 @@ async def async_setup_entry(
     )
 
     sensors = [
-        OctoBedCalibrationStatusSensor(client, device_info, uid),
+        OctoBedCalibrationStatusSensor(client, device_info, uid, calibration_disabled_paired),
         OctoBedMacAddressSensor(client, device_info, uid),
         OctoBedHeadPositionSensor(client, device_info, uid),
         OctoBedFeetPositionSensor(client, device_info, uid),
@@ -51,17 +64,29 @@ class OctoBedCalibrationStatusSensor(SensorEntity):
     _attr_icon = "mdi:ruler"
     _attr_name = "Calibration status"
 
-    def __init__(self, client: OctoBedClient, device_info: DeviceInfo, unique_id_prefix: str) -> None:
+    def __init__(
+        self,
+        client: OctoBedClient,
+        device_info: DeviceInfo,
+        unique_id_prefix: str,
+        unavailable_when_paired: bool = False,
+    ) -> None:
         """Initialize the calibration status sensor."""
         self._client = client
         self._attr_device_info = device_info
         self._attr_unique_id = f"{unique_id_prefix}_calibration_status"
+        self._unavailable_when_paired = unavailable_when_paired
         client.register_calibration_state_callback(self._on_calibration_state_changed)
 
     @callback
     def _on_calibration_state_changed(self) -> None:
         """Update state when calibration state changes."""
         self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Unavailable when this bed is paired (calibrate via Both beds device)."""
+        return not self._unavailable_when_paired
 
     @property
     def native_value(self) -> str:
