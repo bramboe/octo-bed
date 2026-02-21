@@ -36,17 +36,18 @@ async def async_setup_entry(
 ) -> None:
     """Set up Octo Bed covers from a config entry."""
     client: OctoBedClient = hass.data[DOMAIN][entry.entry_id]
+    uid = entry.unique_id or entry.entry_id
 
     device_info = DeviceInfo(
-        identifiers={(DOMAIN, entry.unique_id or entry.entry_id)},
+        identifiers={(DOMAIN, uid)},
         name=entry.title or "Octo Bed",
         manufacturer="Octo",
     )
 
     covers = [
-        OctoBedCover(client, "head", "Head", device_info, entry),
-        OctoBedCover(client, "feet", "Feet", device_info, entry),
-        OctoBedCover(client, "both", "Both", device_info, entry),
+        OctoBedCover(client, "head", "Head", device_info, entry, uid),
+        OctoBedCover(client, "feet", "Feet", device_info, entry, uid),
+        OctoBedCover(client, "both", "Both", device_info, entry, uid),
     ]
 
     async_add_entities(covers)
@@ -70,12 +71,13 @@ class OctoBedCover(CoverEntity):
         name: str,
         device_info: DeviceInfo,
         entry: ConfigEntry,
+        unique_id_prefix: str,
     ) -> None:
         """Initialize the cover."""
         self._client = client
         self._cover_type = cover_type
         self._attr_name = name
-        self._attr_unique_id = f"octo_bed_cover_{cover_type}"
+        self._attr_unique_id = f"{unique_id_prefix}_cover_{cover_type}"
         self._attr_device_info = device_info
         self._entry = entry
         self._target_position: int | None = None
