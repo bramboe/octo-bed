@@ -19,6 +19,13 @@
           "pin": "PIN (4 digits)",
           "device_name": "Device name"
         }
+      },
+      "pair_choice": {
+        "title": "Pair with another bed?",
+        "description": "{message}",
+        "data": {
+          "pair": "Pair with"
+        }
       }
     },
     "error": {
