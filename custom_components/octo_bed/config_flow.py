@@ -15,6 +15,7 @@ from homeassistant.data_entry_flow import FlowResult
 from .const import (
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_HEAD_FULL_TRAVEL_SECONDS,
+    CONF_IS_GROUP,
     CONF_PAIR_WITH_ENTRY_ID,
     CONF_SHOW_CALIBRATION_BUTTONS,
     DEFAULT_FULL_TRAVEL_SECONDS,
@@ -242,8 +243,9 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         self._device_name = (user_input.get("device_name") or "").strip()
                         other_beds = [
                             e for e in self.hass.config_entries.async_entries(DOMAIN)
-                            if not e.data.get("is_group") and e.entry_id
+                            if not (e.data or {}).get(CONF_IS_GROUP) and getattr(e, "entry_id", None)
                         ]
+                        self._other_beds = other_beds
                         if other_beds:
                             return await self.async_step_pair_choice()
                         return self._create_bed_entry()
@@ -286,14 +288,16 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._pair_with_entry_id = (user_input.get("pair") or "").strip() or None
             return self._create_bed_entry()
 
-        other_beds = [
-            e for e in self.hass.config_entries.async_entries(DOMAIN)
-            if not e.data.get("is_group")
-        ]
+        other_beds = getattr(self, "_other_beds", None)
+        if other_beds is None:
+            other_beds = [
+                e for e in self.hass.config_entries.async_entries(DOMAIN)
+                if not (e.data or {}).get(CONF_IS_GROUP)
+            ]
         if not other_beds:
             return self._create_bed_entry()
 
-        pair_options = [(e.entry_id, f"{e.title} ({e.data.get('address', '')})") for e in other_beds]
+        pair_options = [(e.entry_id, f"{e.title} ({(e.data or {}).get('address', '')})") for e in other_beds]
         pair_options.insert(0, ("", "No, keep as separate devices"))
         return self.async_show_form(
             step_id="pair_choice",
