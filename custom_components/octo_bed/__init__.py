@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from types import MappingProxyType
 
@@ -97,9 +98,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data[DOMAIN][entry.entry_id] = client
 
-    # After adding 2nd bed with "pair": create group entry then remove flag
+    # After adding 2nd bed with "pair": create group entry once both members are set up
     pair_with = entry.data.get(CONF_PAIR_WITH_ENTRY_ID)
     if pair_with:
+        member_ids = [pair_with, entry.entry_id]
         other = hass.config_entries.async_get_entry(pair_with)
         if other and not other.data.get(CONF_IS_GROUP):
             other_entry = hass.config_entries.async_get_entry(pair_with)
@@ -112,9 +114,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 }
             group_data = {
                 CONF_IS_GROUP: True,
-                CONF_MEMBER_ENTRY_IDS: [pair_with, entry.entry_id],
+                CONF_MEMBER_ENTRY_IDS: member_ids,
             }
-            # ConfigEntry constructor added required args in newer HA (discovery_keys, minor_version, subentries_data)
             try:
                 group_entry = ConfigEntry(
                     version=1,
@@ -138,7 +139,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     source=SOURCE_IMPORT,
                     unique_id=f"group_{pair_with}_{entry.entry_id}",
                 )
-            await hass.config_entries.async_add(group_entry)
+
+            async def _add_group_when_ready() -> None:
+                domain_data = hass.data.get(DOMAIN) or {}
+                for _ in range(60):  # up to 30 s at 0.5 s interval
+                    if all(eid in domain_data for eid in member_ids):
+                        await hass.config_entries.async_add(group_entry)
+                        break
+                    await asyncio.sleep(0.5)
+                    domain_data = hass.data.get(DOMAIN) or {}
+                else:
+                    _LOGGER.warning(
+                        "Group entry not added: members %s not ready in time",
+                        member_ids,
+                    )
+
+            hass.async_create_task(_add_group_when_ready())
         new_data = {k: v for k, v in entry.data.items() if k != CONF_PAIR_WITH_ENTRY_ID}
         hass.config_entries.async_update_entry(entry, data=new_data)
 
