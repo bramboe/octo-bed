@@ -610,85 +610,103 @@ class OctoBedClient:
 
 
 class CombinedOctoBedClient:
-    """Virtual client that forwards commands to two OctoBedClient instances (paired beds)."""
+    """Wrapper that controls two OctoBedClient instances as one (paired beds)."""
 
     def __init__(self, client1: OctoBedClient, client2: OctoBedClient) -> None:
-        """Initialize with two bed clients."""
-        self._clients = (client1, client2)
+        self._client1 = client1
+        self._client2 = client2
         self._position_callbacks: list[Callable[[str, int], None]] = []
         self._calibration_state_callbacks: list[Callable[[], None]] = []
-        for c in self._clients:
-            c.register_position_callback(self._on_position_changed)
-
-    def _on_position_changed(self, part: str, _position: int) -> None:
-        """Notify our listeners with aggregated position when either bed changes."""
-        pos = (
-            self.get_head_position()
-            if part == "head"
-            else self.get_feet_position()
-            if part == "feet"
-            else self.get_both_position()
-        )
-        for cb in self._position_callbacks:
-            try:
-                cb(part, pos)
-            except Exception:  # noqa: BLE001
-                pass
-
-    async def _both(self, coro_getter: Callable[[OctoBedClient], Coroutine[Any, Any, Any]]) -> None:
-        """Run a coroutine on both clients concurrently."""
-        await asyncio.gather(coro_getter(self._clients[0]), coro_getter(self._clients[1]))
 
     async def connect(self) -> bool:
-        return True
+        """Connect both beds."""
+        r1 = await self._client1.connect()
+        r2 = await self._client2.connect()
+        return r1 and r2
 
     async def disconnect(self) -> None:
+        """Disconnect both beds."""
+        await self._client1.disconnect()
+        await self._client2.disconnect()
+
+    async def ensure_connected(self) -> bool:
+        """Ensure both are connected."""
+        return await self._client1.ensure_connected() and await self._client2.ensure_connected()
+
+    async def send_pin(self) -> bool:
+        """Send PIN to both (each uses its own PIN)."""
+        r1, r2 = await asyncio.gather(self._client1.send_pin(), self._client2.send_pin())
+        return r1 and r2
+
+    async def _send_both(self, coro1: Coroutine[Any, Any, bool], coro2: Coroutine[Any, Any, bool]) -> bool:
+        """Run two command coroutines in parallel; return True if both succeed."""
+        r1, r2 = await asyncio.gather(coro1, coro2)
+        return r1 and r2
+
+    async def both_down(self) -> bool:
+        return await self._send_both(self._client1.both_down(), self._client2.both_down())
+
+    async def both_up(self) -> bool:
+        return await self._send_both(self._client1.both_up(), self._client2.both_up())
+
+    async def both_up_continuous(self) -> bool:
+        r1, r2 = await asyncio.gather(
+            self._client1.both_up_continuous(),
+            self._client2.both_up_continuous(),
+        )
+        return r1 and r2
+
+    async def feet_down(self) -> bool:
+        return await self._send_both(self._client1.feet_down(), self._client2.feet_down())
+
+    async def feet_up(self) -> bool:
+        return await self._send_both(self._client1.feet_up(), self._client2.feet_up())
+
+    async def head_down(self) -> bool:
+        return await self._send_both(self._client1.head_down(), self._client2.head_down())
+
+    async def head_up(self) -> bool:
+        return await self._send_both(self._client1.head_up(), self._client2.head_up())
+
+    async def head_up_continuous(self) -> bool:
+        return await self._send_both(
+            self._client1.head_up_continuous(),
+            self._client2.head_up_continuous(),
+        )
+
+    def register_movement_task(self, task: asyncio.Task[None]) -> None:
+        self._client1.register_movement_task(task)
+        self._client2.register_movement_task(task)
+
+    def register_active_movement(self, part: str, task: asyncio.Task[None]) -> None:
+        self._client1.register_active_movement(part, task)
+        self._client2.register_active_movement(part, task)
+
+    async def start_calibration(self, part: str) -> None:
+        """Combined bed: calibration not supported (per-bed only)."""
         pass
 
-    def is_connected(self) -> bool:
-        return self._clients[0].is_connected() and self._clients[1].is_connected()
+    async def complete_calibration(self) -> tuple[str | None, float]:
+        return (None, 0.0)
 
-    def get_device_address(self) -> str:
-        return "combined"
+    def is_calibrating(self) -> bool:
+        return False
 
-    def get_head_position(self) -> int:
-        return int(round((self._clients[0].get_head_position() + self._clients[1].get_head_position()) / 2.0))
+    def get_calibration_elapsed_seconds(self) -> float:
+        return 0.0
 
-    def get_feet_position(self) -> int:
-        return int(round((self._clients[0].get_feet_position() + self._clients[1].get_feet_position()) / 2.0))
+    async def move_part_down_for_seconds(self, part: str, seconds: float) -> None:
+        pass
 
-    def get_both_position(self) -> int:
-        return int(round((self._clients[0].get_both_position() + self._clients[1].get_both_position()) / 2.0))
+    def get_calibration_status(self) -> tuple[str, str | None]:
+        return ("idle", None)
 
-    def set_head_position(self, position: int) -> None:
-        for c in self._clients:
-            c.set_head_position(position)
-        for cb in self._position_callbacks:
+    def _notify_calibration_state(self) -> None:
+        for cb in self._calibration_state_callbacks:
             try:
-                cb("head", position)
+                cb()
             except Exception:  # noqa: BLE001
                 pass
-
-    def set_feet_position(self, position: int) -> None:
-        for c in self._clients:
-            c.set_feet_position(position)
-        for cb in self._position_callbacks:
-            try:
-                cb("feet", position)
-            except Exception:  # noqa: BLE001
-                pass
-
-    def set_both_position(self, position: int) -> None:
-        for c in self._clients:
-            c.set_both_position(position)
-        for cb in self._position_callbacks:
-            try:
-                cb("both", position)
-            except Exception:  # noqa: BLE001
-                pass
-
-    def register_position_callback(self, callback: Callable[[str, int], None]) -> None:
-        self._position_callbacks.append(callback)
 
     def register_calibration_state_callback(self, callback: Callable[[], None]) -> None:
         self._calibration_state_callbacks.append(callback)
@@ -696,78 +714,48 @@ class CombinedOctoBedClient:
     def is_calibration_active(self) -> bool:
         return False
 
-    def is_calibrating(self) -> bool:
-        return False
+    def is_connected(self) -> bool:
+        return self._client1.is_connected() and self._client2.is_connected()
 
-    def get_calibration_status(self) -> tuple[str, str | None]:
-        return ("idle", None)
+    def get_device_address(self) -> str:
+        return f"{self._client1.get_device_address()}+{self._client2.get_device_address()}"
 
-    def get_calibration_elapsed_seconds(self) -> float:
-        return 0.0
+    def get_head_position(self) -> int:
+        return int(round((self._client1.get_head_position() + self._client2.get_head_position()) / 2.0))
 
-    async def start_calibration(self, part: str) -> None:
-        pass
+    def get_feet_position(self) -> int:
+        return int(round((self._client1.get_feet_position() + self._client2.get_feet_position()) / 2.0))
 
-    async def complete_calibration(self) -> tuple[str | None, float]:
-        return (None, 0.0)
+    def get_both_position(self) -> int:
+        return int(round((self._client1.get_both_position() + self._client2.get_both_position()) / 2.0))
 
-    async def move_part_down_for_seconds(self, part: str, seconds: float) -> None:
-        pass
+    def set_head_position(self, position: int) -> None:
+        self._client1.set_head_position(position)
+        self._client2.set_head_position(position)
 
-    def register_movement_task(self, task: asyncio.Task[None]) -> None:
-        for c in self._clients:
-            c.register_movement_task(task)
+    def set_feet_position(self, position: int) -> None:
+        self._client1.set_feet_position(position)
+        self._client2.set_feet_position(position)
 
-    def register_active_movement(self, part: str, task: asyncio.Task[None]) -> None:
-        for c in self._clients:
-            c.register_active_movement(part, task)
+    def set_both_position(self, position: int) -> None:
+        self.set_head_position(position)
+        self.set_feet_position(position)
 
-    async def _send_command(self, data: bytes) -> bool:
-        results = await asyncio.gather(
-            self._clients[0]._send_command(data),
-            self._clients[1]._send_command(data),
-        )
-        return bool(results[0] and results[1])
+    def register_position_callback(self, callback: Callable[[str, int], None]) -> None:
+        self._position_callbacks.append(callback)
+        def _fwd(part: str, pos: int) -> None:
+            callback(part, pos)
+        self._client1.register_position_callback(_fwd)
+        self._client2.register_position_callback(_fwd)
 
     async def stop(self) -> bool:
-        results = await asyncio.gather(self._clients[0].stop(), self._clients[1].stop())
-        return bool(results[0] and results[1])
-
-    async def head_up(self) -> bool:
-        results = await asyncio.gather(self._clients[0].head_up(), self._clients[1].head_up())
-        return bool(results[0] and results[1])
-
-    async def head_down(self) -> bool:
-        results = await asyncio.gather(self._clients[0].head_down(), self._clients[1].head_down())
-        return bool(results[0] and results[1])
-
-    async def feet_up(self) -> bool:
-        results = await asyncio.gather(self._clients[0].feet_up(), self._clients[1].feet_up())
-        return bool(results[0] and results[1])
-
-    async def feet_down(self) -> bool:
-        results = await asyncio.gather(self._clients[0].feet_down(), self._clients[1].feet_down())
-        return bool(results[0] and results[1])
-
-    async def both_up(self) -> bool:
-        results = await asyncio.gather(self._clients[0].both_up(), self._clients[1].both_up())
-        return bool(results[0] and results[1])
-
-    async def both_down(self) -> bool:
-        results = await asyncio.gather(self._clients[0].both_down(), self._clients[1].both_down())
-        return bool(results[0] and results[1])
-
-    async def head_up_continuous(self) -> bool:
-        results = await asyncio.gather(
-            self._clients[0].head_up_continuous(),
-            self._clients[1].head_up_continuous(),
-        )
-        return bool(results[0] and results[1])
+        r1, r2 = await asyncio.gather(self._client1.stop(), self._client2.stop())
+        return r1 and r2
 
     async def light_on(self) -> bool:
-        results = await asyncio.gather(self._clients[0].light_on(), self._clients[1].light_on())
-        return bool(results[0] and results[1])
+        r1, r2 = await asyncio.gather(self._client1.light_on(), self._client2.light_on())
+        return r1 and r2
 
     async def light_off(self) -> bool:
-        results = await asyncio.gather(self._clients[0].light_off(), self._clients[1].light_off())
-        return bool(results[0] and results[1])
+        r1, r2 = await asyncio.gather(self._client1.light_off(), self._client2.light_off())
+        return r1 and r2
