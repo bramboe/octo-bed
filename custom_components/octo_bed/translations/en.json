@@ -21,6 +21,12 @@
         }
       }
     },
+    "step": {
+      "user": {"title": "Add Octo Bed","description": "Enter your Octo bed's Bluetooth address. With ESPHome Bluetooth proxy, use the bed's address (not the proxy).","data": {"address": "Bluetooth address (e.g. F6:21:DD:DD:6F:19)"}},
+      "confirm": {"title": "Octo Bed found","description": "Do you want to add the Octo Bed at {address}?"},
+      "pin": {"title": "Enter PIN","description": "The 4-digit PIN is required to establish a connection with your Octo bed. You can find this in your bed's manual or app.","data": {"pin": "PIN (4 digits)","device_name": "Device name"}},
+      "pair": {"title": "Pair with another bed","description": "{pair_description}","data": {"pair_with_entry_id": "Pair with existing bed"}}
+    },
     "error": {
       "invalid_address": "Invalid Bluetooth address. Use format AA:BB:CC:DD:EE:FF (12 hex characters).",
       "invalid_pin": "PIN must be exactly 4 digits.",
