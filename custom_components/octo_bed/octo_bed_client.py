@@ -29,6 +29,8 @@ from .const import (
     COMMAND_CHAR_UUID,
     COMMAND_HANDLE,
     NOTIFY_HANDLE,
+    NOTIFY_PIN_ACCEPTED,
+    NOTIFY_PIN_REJECTED,
     NOTIFY_PIN_REQUIRED,
     NOTIFY_PIN_REQUIRED_ALT,
 )
@@ -151,6 +153,80 @@ class OctoBedClient:
             await self.send_pin()
             self._start_keepalive()
 
+            return True
+        except BleakError as err:
+            _LOGGER.error("Failed to connect to Octo bed: %s", err)
+            return False
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Failed to connect to Octo bed: %s", err)
+            return False
+
+    async def connect_and_verify_pin(self) -> bool:
+        """Connect to the bed, send PIN, and verify acceptance via notification.
+        Returns True only if the bed sends PIN accepted; False on reject or timeout.
+        """
+        try:
+            def _on_disconnect(client: BleakClient) -> None:
+                self._client = None
+
+            self._intentional_disconnect = False
+            try:
+                self._client = await establish_connection(
+                    BleakClientWithServiceCache,
+                    self._device,
+                    "Octo Bed",
+                    disconnected_callback=_on_disconnect,
+                    timeout=15.0,
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug(
+                    "establish_connection failed, trying direct BleakClient: %s", err
+                )
+                direct = BleakClient(
+                    self._device, disconnected_callback=_on_disconnect
+                )
+                await direct.connect(timeout=15.0)
+                self._client = direct
+
+            _LOGGER.debug("Connected to Octo bed at %s", self._device.address)
+
+            try:
+                await self._client.get_services()
+            except Exception:  # noqa: BLE001
+                pass
+
+            pin_result: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+
+            def _verify_handler(_char: BleakGATTCharacteristic, data: bytearray) -> None:
+                raw = bytes(data)
+                if pin_result.done():
+                    return
+                if raw == NOTIFY_PIN_ACCEPTED:
+                    pin_result.set_result(True)
+                elif raw == NOTIFY_PIN_REJECTED:
+                    pin_result.set_result(False)
+
+            await self._client.start_notify(COMMAND_CHAR_UUID, _verify_handler)
+            await self.send_pin()
+            try:
+                result = await asyncio.wait_for(pin_result, 8.0)
+            except asyncio.TimeoutError:
+                _LOGGER.warning("PIN verification timed out waiting for bed response")
+                result = False
+            finally:
+                try:
+                    await self._client.stop_notify(COMMAND_CHAR_UUID)
+                except Exception:  # noqa: BLE001
+                    pass
+
+            if not result:
+                self._intentional_disconnect = True
+                if self._client and self._client.is_connected:
+                    await self._client.disconnect()
+                self._client = None
+                return False
+
+            self._start_keepalive()
             return True
         except BleakError as err:
             _LOGGER.error("Failed to connect to Octo bed: %s", err)
