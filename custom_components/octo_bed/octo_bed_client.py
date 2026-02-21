@@ -79,6 +79,9 @@ class OctoBedClient:
         self._calibration_part: str | None = None
         self._calibration_start_time: float | None = None
         self._calibration_task: asyncio.Task[None] | None = None
+        # True while move_part_down_for_seconds is running (after complete_calibration)
+        self._calibration_completing: bool = False
+        self._calibration_state_callbacks: list[Callable[[], None]] = []
 
     def _start_keepalive(self) -> None:
         if self._keepalive_task and not self._keepalive_task.done():
@@ -393,6 +396,22 @@ class OctoBedClient:
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("Failed to send stop after cancelling movement", exc_info=True)
 
+    def _notify_calibration_state(self) -> None:
+        """Notify listeners that calibration active state may have changed."""
+        for callback in self._calibration_state_callbacks:
+            try:
+                callback()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Calibration state callback error", exc_info=True)
+
+    def register_calibration_state_callback(self, callback: Callable[[], None]) -> None:
+        """Register a callback for calibration active state changes."""
+        self._calibration_state_callbacks.append(callback)
+
+    def is_calibration_active(self) -> bool:
+        """Return True if calibration is in progress (tracking time or moving part down)."""
+        return self._calibration_part is not None or self._calibration_completing
+
     async def start_calibration(self, part: str) -> None:
         """Start calibration for head or feet: move that part up and start counting time."""
         if part not in ("head", "feet"):
@@ -411,6 +430,7 @@ class OctoBedClient:
         self._calibration_task = asyncio.create_task(self._calibration_move_loop(method))
         self.register_movement_task(self._calibration_task)
         self.register_active_movement(part, self._calibration_task)
+        self._notify_calibration_state()
 
     async def _calibration_move_loop(self, method: Callable[[], Coroutine[Any, Any, bool]]) -> None:
         """Send movement command repeatedly until calibration is completed or cancelled."""
@@ -439,6 +459,7 @@ class OctoBedClient:
         self._calibration_task = None
         if part in self._active_movements:
             self._active_movements.pop(part, None)
+        self._notify_calibration_state()
         _LOGGER.info("Calibration complete for %s: %.1f seconds (100% travel)", part, duration)
         return (part, duration)
 
@@ -456,6 +477,8 @@ class OctoBedClient:
         """Move the given part (head or feet) down for the given duration, then set position to 0%."""
         if part not in ("head", "feet") or seconds <= 0:
             return
+        self._calibration_completing = True
+        self._notify_calibration_state()
         method = self.head_down if part == "head" else self.feet_down
         setter = self.set_head_position if part == "head" else self.set_feet_position
         setter(100)  # We're at 100% after calibration
@@ -480,6 +503,8 @@ class OctoBedClient:
         finally:
             await self._send_command(CMD_STOP)
             setter(0)
+            self._calibration_completing = False
+            self._notify_calibration_state()
 
     def is_connected(self) -> bool:
         """Return True if connected to the bed (Bluetooth proxy)."""
