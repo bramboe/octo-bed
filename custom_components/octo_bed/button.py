@@ -14,10 +14,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     CONF_FEET_FULL_TRAVEL_SECONDS,
+    CONF_FULL_TRAVEL_SECONDS,
     CONF_HEAD_FULL_TRAVEL_SECONDS,
     CONF_IS_GROUP,
     CONF_MEMBER_ENTRY_IDS,
     CONF_SHOW_CALIBRATION_BUTTONS,
+    DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
 )
 from .octo_bed_client import OctoBedClient
@@ -62,6 +64,41 @@ async def async_setup_entry(
             OctoBedCalibrateButton(client, entry, "calibrate_feet", "Calibrate feet", "mdi:arrow-up-bold", device_info, uid, calibration_disabled_paired),
             OctoBedCompleteCalibrationButton(client, entry, device_info, uid, calibration_disabled_paired),
         ])
+
+    # Sync position buttons: only when there is at least one other bed
+    if entry.data.get(CONF_IS_GROUP):
+        member_ids = entry.data.get(CONF_MEMBER_ENTRY_IDS) or []
+        for member_id in member_ids:
+            member_entry = hass.config_entries.async_get_entry(member_id)
+            if not member_entry:
+                continue
+            other_client = hass.data.get(DOMAIN, {}).get(member_id)
+            if other_client is None:
+                continue
+            title = member_entry.title or "Octo Bed"
+            buttons.append(
+                OctoBedSyncToBedButton(
+                    client, entry, device_info, uid,
+                    source_entry_id=member_id,
+                    source_title=title,
+                )
+            )
+    else:
+        other_beds = [
+            e for e in hass.config_entries.async_entries(DOMAIN)
+            if not e.data.get(CONF_IS_GROUP) and e.entry_id != entry.entry_id
+        ]
+        for other in other_beds:
+            if hass.data.get(DOMAIN, {}).get(other.entry_id) is None:
+                continue
+            title = other.title or "Octo Bed"
+            buttons.append(
+                OctoBedSyncToOtherButton(
+                    client, entry, device_info, uid,
+                    other_entry_id=other.entry_id,
+                    other_title=title,
+                )
+            )
 
     async_add_entities(buttons)
 
@@ -204,3 +241,107 @@ class OctoBedCompleteCalibrationButton(ButtonEntity):
         self.hass.config_entries.async_update_entry(self._entry, options=options)
         # Move this part down for the same duration (return to 0%)
         await self._client.move_part_down_for_seconds(part, duration_seconds)
+
+
+class OctoBedSyncToOtherButton(ButtonEntity):
+    """Button on an individual bed: copy the other bed's position to this bed."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:sync"
+
+    def __init__(
+        self,
+        client: OctoBedClient,
+        entry: ConfigEntry,
+        device_info: DeviceInfo,
+        unique_id_prefix: str,
+        other_entry_id: str,
+        other_title: str,
+    ) -> None:
+        """Initialize the sync button."""
+        self._client = client
+        self._entry = entry
+        self._attr_device_info = device_info
+        self._attr_unique_id = f"{unique_id_prefix}_sync_to_{other_entry_id}"
+        self._attr_name = f"Sync to {other_title} position"
+        self._other_entry_id = other_entry_id
+        self._other_title = other_title
+        client.register_calibration_state_callback(self._on_calibration_state_changed)
+
+    @callback
+    def _on_calibration_state_changed(self) -> None:
+        """Update availability when calibration state changes."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Unavailable during calibration."""
+        return not self._client.is_calibration_active()
+
+    async def async_press(self) -> None:
+        """Copy the other bed's head/feet position to this bed."""
+        domain_data = self.hass.data.get(DOMAIN) or {}
+        other_client = domain_data.get(self._other_entry_id)
+        if not other_client:
+            _LOGGER.warning("Other bed %s not available for sync", self._other_title)
+            return
+        head = other_client.get_head_position()
+        feet = other_client.get_feet_position()
+        opts = self._entry.options or {}
+        default = opts.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
+        head_travel = opts.get(CONF_HEAD_FULL_TRAVEL_SECONDS, default)
+        feet_travel = opts.get(CONF_FEET_FULL_TRAVEL_SECONDS, default)
+        await self._client.run_to_position(head, feet, head_travel, feet_travel)
+
+
+class OctoBedSyncToBedButton(ButtonEntity):
+    """Button on 'Both beds' device: set both beds to the chosen bed's position."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:sync"
+
+    def __init__(
+        self,
+        client: OctoBedClient,
+        entry: ConfigEntry,
+        device_info: DeviceInfo,
+        unique_id_prefix: str,
+        source_entry_id: str,
+        source_title: str,
+    ) -> None:
+        """Initialize the sync button."""
+        self._client = client
+        self._entry = entry
+        self._attr_device_info = device_info
+        self._attr_unique_id = f"{unique_id_prefix}_sync_to_{source_entry_id}"
+        self._attr_name = f"Sync to {source_title} position"
+        self._source_entry_id = source_entry_id
+        self._source_title = source_title
+        client.register_calibration_state_callback(self._on_calibration_state_changed)
+
+    @callback
+    def _on_calibration_state_changed(self) -> None:
+        """Update availability when calibration state changes."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Unavailable during calibration."""
+        return not self._client.is_calibration_active()
+
+    async def async_press(self) -> None:
+        """Set both beds to the source bed's head/feet position."""
+        domain_data = self.hass.data.get(DOMAIN) or {}
+        source_client = domain_data.get(self._source_entry_id)
+        if not source_client:
+            _LOGGER.warning("Source bed %s not available for sync", self._source_title)
+            return
+        head = source_client.get_head_position()
+        feet = source_client.get_feet_position()
+        opts = self._entry.options or {}
+        default = opts.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
+        head_travel = opts.get(CONF_HEAD_FULL_TRAVEL_SECONDS, default)
+        feet_travel = opts.get(CONF_FEET_FULL_TRAVEL_SECONDS, default)
+        await self._client.run_to_position(head, feet, head_travel, feet_travel)
