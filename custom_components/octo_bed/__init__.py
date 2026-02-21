@@ -138,7 +138,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     source=SOURCE_IMPORT,
                     unique_id=f"group_{pair_with}_{entry.entry_id}",
                 )
-            hass.config_entries.async_add_entry(hass, group_entry)
+            await hass.config_entries.async_add(group_entry)
         new_data = {k: v for k, v in entry.data.items() if k != CONF_PAIR_WITH_ENTRY_ID}
         hass.config_entries.async_update_entry(entry, data=new_data)
 
