@@ -18,6 +18,7 @@ from .const import (
     CONF_SHOW_CALIBRATION_BUTTONS,
     DOMAIN,
 )
+from .helpers import entry_is_member_of_group
 from .octo_bed_client import OctoBedClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -41,7 +42,12 @@ async def async_setup_entry(
     buttons: list[ButtonEntity] = [
         OctoBedButton(client, "stop", "Stop", "mdi:stop", device_info, uid),
     ]
-    if entry.options.get(CONF_SHOW_CALIBRATION_BUTTONS, True):
+    # Calibration only on unpaired beds or on the "Both beds" device
+    show_calibration = (
+        entry.options.get(CONF_SHOW_CALIBRATION_BUTTONS, True)
+        and not entry_is_member_of_group(hass, entry)
+    )
+    if show_calibration:
         buttons.extend([
             OctoBedCalibrateButton(client, entry, "calibrate_head", "Calibrate head", "mdi:arrow-up-bold", device_info, uid),
             OctoBedCalibrateButton(client, entry, "calibrate_feet", "Calibrate feet", "mdi:arrow-up-bold", device_info, uid),
