@@ -23,7 +23,9 @@
     },
     "error": {
       "invalid_address": "Invalid Bluetooth address. Use format AA:BB:CC:DD:EE:FF (12 hex characters).",
-      "invalid_pin": "PIN must be exactly 4 digits."
+      "invalid_pin": "PIN must be exactly 4 digits.",
+      "pin_rejected": "The bed rejected this PIN. Check the PIN and try again.",
+      "device_unavailable": "Device not reachable. Ensure the bed is on and in range (or Bluetooth proxy is connected)."
     },
     "abort": {
       "already_configured": "This device is already configured."
