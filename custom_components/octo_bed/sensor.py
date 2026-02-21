@@ -43,9 +43,9 @@ async def async_setup_entry(
 
 
 class OctoBedCalibrationStatusSensor(SensorEntity):
-    """Sensor showing current calibration status (Configuration section)."""
+    """Sensor showing current calibration status (Diagnostics section)."""
 
-    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_has_entity_name = True
     _attr_icon = "mdi:ruler"
     _attr_unique_id = "octo_bed_calibration_status"
