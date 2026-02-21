@@ -11,8 +11,9 @@ NOTIFY_HANDLE = 0x0012
 # Config
 CONF_PIN = "pin"
 CONF_DEVICE_ADDRESS = "device_address"
-CONF_PAIRED = "paired"
-CONF_BEDS = "beds"
+CONF_IS_GROUP = "is_group"
+CONF_MEMBER_ENTRY_IDS = "member_entry_ids"
+CONF_PAIR_WITH_ENTRY_ID = "pair_with_entry_id"
 CONF_FULL_TRAVEL_SECONDS = "full_travel_seconds"
 CONF_HEAD_FULL_TRAVEL_SECONDS = "head_full_travel_seconds"
 CONF_FEET_FULL_TRAVEL_SECONDS = "feet_full_travel_seconds"
