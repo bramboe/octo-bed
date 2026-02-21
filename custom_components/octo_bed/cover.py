@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from . import get_device_configs
 from .const import (
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_FULL_TRAVEL_SECONDS,
@@ -34,22 +35,17 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Octo Bed covers from a config entry."""
-    client: OctoBedClient = hass.data[DOMAIN][entry.entry_id]
-
-    device_info = DeviceInfo(
-        identifiers={(DOMAIN, entry.unique_id or entry.entry_id)},
-        name=entry.title or "Octo Bed",
-        manufacturer="Octo",
-    )
-
-    covers = [
-        OctoBedCover(client, "head", "Head", device_info, entry),
-        OctoBedCover(client, "feet", "Feet", device_info, entry),
-        OctoBedCover(client, "both", "Both", device_info, entry),
-    ]
-
-    async_add_entities(covers)
+    """Set up Octo Bed covers from a config entry (single or paired)."""
+    all_covers = []
+    for client, device_info, suffix in get_device_configs(hass, entry):
+        suffix_str = f"{suffix}_" if suffix else ""
+        covers = [
+            OctoBedCover(client, "head", "Head", device_info, entry, suffix_str),
+            OctoBedCover(client, "feet", "Feet", device_info, entry, suffix_str),
+            OctoBedCover(client, "both", "Both", device_info, entry, suffix_str),
+        ]
+        all_covers.extend(covers)
+    async_add_entities(all_covers)
 
 
 class OctoBedCover(CoverEntity):
@@ -70,12 +66,13 @@ class OctoBedCover(CoverEntity):
         name: str,
         device_info: DeviceInfo,
         entry: ConfigEntry,
+        device_suffix: str = "",
     ) -> None:
         """Initialize the cover."""
         self._client = client
         self._cover_type = cover_type
         self._attr_name = name
-        self._attr_unique_id = f"octo_bed_cover_{cover_type}"
+        self._attr_unique_id = f"octo_bed_cover_{device_suffix}{cover_type}" if device_suffix else f"octo_bed_cover_{cover_type}"
         self._attr_device_info = device_info
         self._entry = entry
         self._target_position: int | None = None
