@@ -15,10 +15,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import (
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_HEAD_FULL_TRAVEL_SECONDS,
+    CONF_IS_GROUP,
+    CONF_MEMBER_ENTRY_IDS,
     CONF_SHOW_CALIBRATION_BUTTONS,
     DOMAIN,
 )
-from .helpers import entry_is_member_of_group
+from .group_client import GroupOctoBedClient
 from .octo_bed_client import OctoBedClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,7 +32,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Octo Bed buttons from a config entry."""
-    client: OctoBedClient = hass.data[DOMAIN][entry.entry_id]
+    client = hass.data[DOMAIN][entry.entry_id]
     uid = entry.unique_id or entry.entry_id
 
     device_info = DeviceInfo(
@@ -42,10 +44,15 @@ async def async_setup_entry(
     buttons: list[ButtonEntity] = [
         OctoBedButton(client, "stop", "Stop", "mdi:stop", device_info, uid),
     ]
-    # Calibration only on unpaired beds or on the "Both beds" device
-    show_calibration = (
-        entry.options.get(CONF_SHOW_CALIBRATION_BUTTONS, True)
-        and not entry_is_member_of_group(hass, entry)
+    # Calibration: only on group ("Both beds") device, or on unpaired beds
+    is_group = entry.data.get(CONF_IS_GROUP)
+    is_member_of_group = not is_group and any(
+        e.data.get(CONF_IS_GROUP)
+        and entry.entry_id in (e.data.get(CONF_MEMBER_ENTRY_IDS) or [])
+        for e in hass.config_entries.async_entries(DOMAIN)
+    )
+    show_calibration = entry.options.get(CONF_SHOW_CALIBRATION_BUTTONS, True) and (
+        is_group or not is_member_of_group
     )
     if show_calibration:
         buttons.extend([
