@@ -81,6 +81,7 @@ class OctoBedClient:
         self._calibration_task: asyncio.Task[None] | None = None
         # True while move_part_down_for_seconds is running (after complete_calibration)
         self._calibration_completing: bool = False
+        self._calibration_returning_part: str | None = None  # "head" or "feet" while returning
         self._calibration_state_callbacks: list[Callable[[], None]] = []
 
     def _start_keepalive(self) -> None:
@@ -478,6 +479,7 @@ class OctoBedClient:
         if part not in ("head", "feet") or seconds <= 0:
             return
         self._calibration_completing = True
+        self._calibration_returning_part = part
         self._notify_calibration_state()
         method = self.head_down if part == "head" else self.feet_down
         setter = self.set_head_position if part == "head" else self.set_feet_position
@@ -504,7 +506,16 @@ class OctoBedClient:
             await self._send_command(CMD_STOP)
             setter(0)
             self._calibration_completing = False
+            self._calibration_returning_part = None
             self._notify_calibration_state()
+
+    def get_calibration_status(self) -> tuple[str, str | None]:
+        """Return (state, part) for calibration. state: 'idle' | 'tracking' | 'returning'; part: 'head' | 'feet' | None."""
+        if self._calibration_completing and self._calibration_returning_part:
+            return ("returning", self._calibration_returning_part)
+        if self._calibration_part is not None:
+            return ("tracking", self._calibration_part)
+        return ("idle", None)
 
     def is_connected(self) -> bool:
         """Return True if connected to the bed (Bluetooth proxy)."""
