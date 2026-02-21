@@ -17,24 +17,36 @@
         "description": "The 4-digit PIN is required to establish a connection with your Octo bed. You can find this in your bed's manual or app.",
         "data": {
           "pin": "PIN (4 digits)",
+          "device_name": "Device name",
+          "pair_with_another": "Add another bed to pair (control both as one)"
+        }
+      },
+      "add_second_bed": {
+        "title": "Add second bed",
+        "description": "Enter the second bed's Bluetooth address to pair with the first. Leave empty and submit to add only the first bed.",
+        "data": {
+          "address": "Second bed address (or leave empty to skip)"
+        }
+      },
+      "pin_second": {
+        "title": "Second bed PIN",
+        "description": "Enter the PIN for the second bed at {address}.",
+        "data": {
+          "pin": "PIN (4 digits)",
           "device_name": "Device name"
         }
       }
-    },
-    "step": {
-      "user": {"title": "Add Octo Bed","description": "Enter your Octo bed's Bluetooth address. With ESPHome Bluetooth proxy, use the bed's address (not the proxy).","data": {"address": "Bluetooth address (e.g. F6:21:DD:DD:6F:19)"}},
-      "confirm": {"title": "Octo Bed found","description": "Do you want to add the Octo Bed at {address}?"},
-      "pin": {"title": "Enter PIN","description": "The 4-digit PIN is required to establish a connection with your Octo bed. You can find this in your bed's manual or app.","data": {"pin": "PIN (4 digits)","device_name": "Device name"}},
-      "pair": {"title": "Pair with another bed","description": "{pair_description}","data": {"pair_with_entry_id": "Pair with existing bed"}}
     },
     "error": {
       "invalid_address": "Invalid Bluetooth address. Use format AA:BB:CC:DD:EE:FF (12 hex characters).",
       "invalid_pin": "PIN must be exactly 4 digits.",
       "pin_rejected": "The bed rejected this PIN. Check the PIN and try again.",
-      "device_unavailable": "Device not reachable. Ensure the bed is on and in range (or Bluetooth proxy is connected)."
+      "device_unavailable": "Device not reachable. Ensure the bed is on and in range (or Bluetooth proxy is connected).",
+      "same_as_first": "Second bed address must be different from the first."
     },
     "abort": {
-      "already_configured": "This device is already configured."
+      "already_configured": "This device is already configured.",
+      "pairing_lost": "Pairing was cancelled. Add the first bed again if needed."
     }
   },
   "options": {
