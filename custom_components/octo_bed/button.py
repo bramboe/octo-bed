@@ -30,21 +30,22 @@ async def async_setup_entry(
 ) -> None:
     """Set up Octo Bed buttons from a config entry."""
     client: OctoBedClient = hass.data[DOMAIN][entry.entry_id]
+    uid = entry.unique_id or entry.entry_id
 
     device_info = DeviceInfo(
-        identifiers={(DOMAIN, entry.unique_id or entry.entry_id)},
+        identifiers={(DOMAIN, uid)},
         name=entry.title or "Octo Bed",
         manufacturer="Octo",
     )
 
     buttons: list[ButtonEntity] = [
-        OctoBedButton(client, "stop", "Stop", "mdi:stop", device_info),
+        OctoBedButton(client, "stop", "Stop", "mdi:stop", device_info, uid),
     ]
     if entry.options.get(CONF_SHOW_CALIBRATION_BUTTONS, True):
         buttons.extend([
-            OctoBedCalibrateButton(client, entry, "calibrate_head", "Calibrate head", "mdi:arrow-up-bold", device_info),
-            OctoBedCalibrateButton(client, entry, "calibrate_feet", "Calibrate feet", "mdi:arrow-up-bold", device_info),
-            OctoBedCompleteCalibrationButton(client, entry, device_info),
+            OctoBedCalibrateButton(client, entry, "calibrate_head", "Calibrate head", "mdi:arrow-up-bold", device_info, uid),
+            OctoBedCalibrateButton(client, entry, "calibrate_feet", "Calibrate feet", "mdi:arrow-up-bold", device_info, uid),
+            OctoBedCompleteCalibrationButton(client, entry, device_info, uid),
         ])
 
     async_add_entities(buttons)
@@ -62,13 +63,14 @@ class OctoBedButton(ButtonEntity):
         name: str,
         icon: str,
         device_info: DeviceInfo,
+        unique_id_prefix: str,
     ) -> None:
         """Initialize the button."""
         self._client = client
         self._action = action
         self._attr_name = name
         self._attr_icon = icon
-        self._attr_unique_id = f"octo_bed_{action}"
+        self._attr_unique_id = f"{unique_id_prefix}_{action}"
         self._attr_device_info = device_info
         client.register_calibration_state_callback(self._on_calibration_state_changed)
 
@@ -104,6 +106,7 @@ class OctoBedCalibrateButton(ButtonEntity):
         name: str,
         icon: str,
         device_info: DeviceInfo,
+        unique_id_prefix: str,
     ) -> None:
         """Initialize the calibration button."""
         self._client = client
@@ -111,7 +114,7 @@ class OctoBedCalibrateButton(ButtonEntity):
         self._action = action
         self._attr_name = name
         self._attr_icon = icon
-        self._attr_unique_id = f"octo_bed_{action}"
+        self._attr_unique_id = f"{unique_id_prefix}_{action}"
         self._attr_device_info = device_info
         self._part = "head" if "head" in action else "feet"
         client.register_calibration_state_callback(self._on_calibration_state_changed)
@@ -138,18 +141,19 @@ class OctoBedCompleteCalibrationButton(ButtonEntity):
     _attr_has_entity_name = True
     _attr_name = "Complete calibration session"
     _attr_icon = "mdi:check-circle"
-    _attr_unique_id = "octo_bed_complete_calibration"
 
     def __init__(
         self,
         client: OctoBedClient,
         entry: ConfigEntry,
         device_info: DeviceInfo,
+        unique_id_prefix: str,
     ) -> None:
         """Initialize the complete calibration button."""
         self._client = client
         self._entry = entry
         self._attr_device_info = device_info
+        self._attr_unique_id = f"{unique_id_prefix}_complete_calibration"
         client.register_calibration_state_callback(self._on_calibration_state_changed)
 
     @callback
