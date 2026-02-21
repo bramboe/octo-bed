@@ -13,7 +13,6 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import get_device_configs
 from .const import (
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_FULL_TRAVEL_SECONDS,
@@ -32,7 +31,15 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Octo Bed switches from a config entry (single or paired)."""
+    """Set up Octo Bed switches from a config entry."""
+    client: OctoBedClient = hass.data[DOMAIN][entry.entry_id]
+
+    device_info = DeviceInfo(
+        identifiers={(DOMAIN, entry.unique_id or entry.entry_id)},
+        name=entry.title or "Octo Bed",
+        manufacturer="Octo",
+    )
+
     default_travel = entry.options.get(
         CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
     )
@@ -40,20 +47,29 @@ async def async_setup_entry(
     feet_travel = entry.options.get(CONF_FEET_FULL_TRAVEL_SECONDS, default_travel)
     both_travel = max(head_travel, feet_travel)
 
-    all_entities: list[SwitchEntity] = []
-    for client, device_info, suffix in get_device_configs(hass, entry):
-        suffix_str = f"{suffix}_" if suffix else ""
-        entities = [
-            OctoBedMovementSwitch(client, "both_up", "Both Up", "mdi:arrow-up-bold", device_info, both_travel, suffix_str),
-            OctoBedMovementSwitch(client, "both_down", "Both Down", "mdi:arrow-down-bold", device_info, both_travel, suffix_str),
-            OctoBedMovementSwitch(client, "head_up", "Head Up", "mdi:arrow-up", device_info, head_travel, suffix_str),
-            OctoBedMovementSwitch(client, "head_down", "Head Down", "mdi:arrow-down", device_info, head_travel, suffix_str),
-            OctoBedMovementSwitch(client, "feet_up", "Feet Up", "mdi:arrow-up", device_info, feet_travel, suffix_str),
-            OctoBedMovementSwitch(client, "feet_down", "Feet Down", "mdi:arrow-down", device_info, feet_travel, suffix_str),
-            OctoBedLightSwitch(client, device_info, suffix_str),
-        ]
-        all_entities.extend(entities)
-    async_add_entities(all_entities)
+    entities: list[SwitchEntity] = [
+        OctoBedMovementSwitch(
+            client, "both_up", "Both Up", "mdi:arrow-up-bold", device_info, both_travel
+        ),
+        OctoBedMovementSwitch(
+            client, "both_down", "Both Down", "mdi:arrow-down-bold", device_info, both_travel
+        ),
+        OctoBedMovementSwitch(
+            client, "head_up", "Head Up", "mdi:arrow-up", device_info, head_travel
+        ),
+        OctoBedMovementSwitch(
+            client, "head_down", "Head Down", "mdi:arrow-down", device_info, head_travel
+        ),
+        OctoBedMovementSwitch(
+            client, "feet_up", "Feet Up", "mdi:arrow-up", device_info, feet_travel
+        ),
+        OctoBedMovementSwitch(
+            client, "feet_down", "Feet Down", "mdi:arrow-down", device_info, feet_travel
+        ),
+        OctoBedLightSwitch(client, device_info),
+    ]
+
+    async_add_entities(entities)
 
 
 class OctoBedLightSwitch(SwitchEntity):
@@ -62,12 +78,12 @@ class OctoBedLightSwitch(SwitchEntity):
     _attr_has_entity_name = True
     _attr_name = "Light"
     _attr_icon = "mdi:lightbulb"
+    _attr_unique_id = "octo_bed_light"
 
-    def __init__(self, client: OctoBedClient, device_info: DeviceInfo, device_suffix: str = "") -> None:
+    def __init__(self, client: OctoBedClient, device_info: DeviceInfo) -> None:
         """Initialize the light switch."""
         self._client = client
         self._attr_device_info = device_info
-        self._attr_unique_id = f"octo_bed_{device_suffix}light" if device_suffix else "octo_bed_light"
         self._is_on: bool | None = None  # Unknown state initially
         client.register_calibration_state_callback(self._on_calibration_state_changed)
 
@@ -112,14 +128,13 @@ class OctoBedMovementSwitch(SwitchEntity):
         icon: str,
         device_info: DeviceInfo,
         full_travel_seconds: int,
-        device_suffix: str = "",
     ) -> None:
         """Initialize the movement switch."""
         self._client = client
         self._action = action
         self._attr_name = name
         self._attr_icon = icon
-        self._attr_unique_id = f"octo_bed_move_{device_suffix}{action}" if device_suffix else f"octo_bed_move_{action}"
+        self._attr_unique_id = f"octo_bed_move_{action}"
         self._attr_device_info = device_info
         self._is_on: bool = False
         self._full_travel_seconds = full_travel_seconds
