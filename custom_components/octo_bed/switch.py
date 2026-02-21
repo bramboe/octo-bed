@@ -33,9 +33,10 @@ async def async_setup_entry(
 ) -> None:
     """Set up Octo Bed switches from a config entry."""
     client: OctoBedClient = hass.data[DOMAIN][entry.entry_id]
+    uid = entry.unique_id or entry.entry_id
 
     device_info = DeviceInfo(
-        identifiers={(DOMAIN, entry.unique_id or entry.entry_id)},
+        identifiers={(DOMAIN, uid)},
         name=entry.title or "Octo Bed",
         manufacturer="Octo",
     )
@@ -49,24 +50,24 @@ async def async_setup_entry(
 
     entities: list[SwitchEntity] = [
         OctoBedMovementSwitch(
-            client, "both_up", "Both Up", "mdi:arrow-up-bold", device_info, both_travel
+            client, "both_up", "Both Up", "mdi:arrow-up-bold", device_info, both_travel, uid
         ),
         OctoBedMovementSwitch(
-            client, "both_down", "Both Down", "mdi:arrow-down-bold", device_info, both_travel
+            client, "both_down", "Both Down", "mdi:arrow-down-bold", device_info, both_travel, uid
         ),
         OctoBedMovementSwitch(
-            client, "head_up", "Head Up", "mdi:arrow-up", device_info, head_travel
+            client, "head_up", "Head Up", "mdi:arrow-up", device_info, head_travel, uid
         ),
         OctoBedMovementSwitch(
-            client, "head_down", "Head Down", "mdi:arrow-down", device_info, head_travel
+            client, "head_down", "Head Down", "mdi:arrow-down", device_info, head_travel, uid
         ),
         OctoBedMovementSwitch(
-            client, "feet_up", "Feet Up", "mdi:arrow-up", device_info, feet_travel
+            client, "feet_up", "Feet Up", "mdi:arrow-up", device_info, feet_travel, uid
         ),
         OctoBedMovementSwitch(
-            client, "feet_down", "Feet Down", "mdi:arrow-down", device_info, feet_travel
+            client, "feet_down", "Feet Down", "mdi:arrow-down", device_info, feet_travel, uid
         ),
-        OctoBedLightSwitch(client, device_info),
+        OctoBedLightSwitch(client, device_info, uid),
     ]
 
     async_add_entities(entities)
@@ -78,12 +79,12 @@ class OctoBedLightSwitch(SwitchEntity):
     _attr_has_entity_name = True
     _attr_name = "Light"
     _attr_icon = "mdi:lightbulb"
-    _attr_unique_id = "octo_bed_light"
 
-    def __init__(self, client: OctoBedClient, device_info: DeviceInfo) -> None:
+    def __init__(self, client: OctoBedClient, device_info: DeviceInfo, unique_id_prefix: str) -> None:
         """Initialize the light switch."""
         self._client = client
         self._attr_device_info = device_info
+        self._attr_unique_id = f"{unique_id_prefix}_light"
         self._is_on: bool | None = None  # Unknown state initially
         client.register_calibration_state_callback(self._on_calibration_state_changed)
 
@@ -128,13 +129,14 @@ class OctoBedMovementSwitch(SwitchEntity):
         icon: str,
         device_info: DeviceInfo,
         full_travel_seconds: int,
+        unique_id_prefix: str,
     ) -> None:
         """Initialize the movement switch."""
         self._client = client
         self._action = action
         self._attr_name = name
         self._attr_icon = icon
-        self._attr_unique_id = f"octo_bed_move_{action}"
+        self._attr_unique_id = f"{unique_id_prefix}_move_{action}"
         self._attr_device_info = device_info
         self._is_on: bool = False
         self._full_travel_seconds = full_travel_seconds
