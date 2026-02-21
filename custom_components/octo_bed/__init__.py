@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from types import MappingProxyType
 
 from homeassistant.components import bluetooth
 from homeassistant.config_entries import ConfigEntry, SOURCE_IMPORT
@@ -111,6 +112,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 }
             group_entry = ConfigEntry(
                 version=1,
+                minor_version=0,
                 domain=DOMAIN,
                 title="Both beds",
                 data={
@@ -120,6 +122,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 options=group_options,
                 source=SOURCE_IMPORT,
                 unique_id=f"group_{pair_with}_{entry.entry_id}",
+                discovery_keys=MappingProxyType({}),
+                subentries_data=None,
             )
             hass.config_entries.async_add_entry(hass, group_entry)
         new_data = {k: v for k, v in entry.data.items() if k != CONF_PAIR_WITH_ENTRY_ID}
