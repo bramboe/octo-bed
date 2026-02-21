@@ -538,6 +538,58 @@ class OctoBedClient:
         # Use average to represent the overall position when head and feet differ
         return int(round((self._head_position + self._feet_position) / 2.0))
 
+    async def run_to_position(
+        self,
+        head_target: int,
+        feet_target: int,
+        head_travel_seconds: float,
+        feet_travel_seconds: float,
+    ) -> None:
+        """Move head and feet to target positions (0-100). Uses travel seconds for full range."""
+        head_target = max(0, min(100, head_target))
+        feet_target = max(0, min(100, feet_target))
+        head_current = self.get_head_position()
+        feet_current = self.get_feet_position()
+        interval = 0.375
+
+        # Move head
+        if head_target != head_current and head_travel_seconds > 0:
+            duration = abs(head_target - head_current) / 100.0 * head_travel_seconds
+            method = self.head_up if head_target > head_current else self.head_down
+            start = time.monotonic()
+            end = start + duration
+            try:
+                while time.monotonic() < end:
+                    await method()
+                    elapsed = time.monotonic() - start
+                    frac = min(1.0, elapsed / duration) if duration > 0 else 1.0
+                    self.set_head_position(
+                        int(round(head_current + (head_target - head_current) * frac))
+                    )
+                    await asyncio.sleep(interval)
+            finally:
+                await self._send_command(CMD_STOP)
+                self.set_head_position(head_target)
+
+        # Move feet
+        if feet_target != feet_current and feet_travel_seconds > 0:
+            duration = abs(feet_target - feet_current) / 100.0 * feet_travel_seconds
+            method = self.feet_up if feet_target > feet_current else self.feet_down
+            start = time.monotonic()
+            end = start + duration
+            try:
+                while time.monotonic() < end:
+                    await method()
+                    elapsed = time.monotonic() - start
+                    frac = min(1.0, elapsed / duration) if duration > 0 else 1.0
+                    self.set_feet_position(
+                        int(round(feet_current + (feet_target - feet_current) * frac))
+                    )
+                    await asyncio.sleep(interval)
+            finally:
+                await self._send_command(CMD_STOP)
+                self.set_feet_position(feet_target)
+
     def set_head_position(self, position: int) -> None:
         """Set head position (0-100) and notify listeners."""
         position = max(0, min(100, position))
