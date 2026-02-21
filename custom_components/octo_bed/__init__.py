@@ -110,21 +110,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
                     CONF_SHOW_CALIBRATION_BUTTONS: False,
                 }
-            group_entry = ConfigEntry(
-                version=1,
-                minor_version=0,
-                domain=DOMAIN,
-                title="Both beds",
-                data={
-                    CONF_IS_GROUP: True,
-                    CONF_MEMBER_ENTRY_IDS: [pair_with, entry.entry_id],
-                },
-                options=group_options,
-                source=SOURCE_IMPORT,
-                unique_id=f"group_{pair_with}_{entry.entry_id}",
-                discovery_keys=MappingProxyType({}),
-                subentries_data=None,
-            )
+            group_data = {
+                CONF_IS_GROUP: True,
+                CONF_MEMBER_ENTRY_IDS: [pair_with, entry.entry_id],
+            }
+            # ConfigEntry constructor added required args in newer HA (discovery_keys, minor_version, subentries_data)
+            try:
+                group_entry = ConfigEntry(
+                    version=1,
+                    minor_version=0,
+                    domain=DOMAIN,
+                    title="Both beds",
+                    data=group_data,
+                    options=group_options,
+                    source=SOURCE_IMPORT,
+                    unique_id=f"group_{pair_with}_{entry.entry_id}",
+                    discovery_keys=MappingProxyType({}),
+                    subentries_data=None,
+                )
+            except TypeError:
+                group_entry = ConfigEntry(
+                    version=1,
+                    domain=DOMAIN,
+                    title="Both beds",
+                    data=group_data,
+                    options=group_options,
+                    source=SOURCE_IMPORT,
+                    unique_id=f"group_{pair_with}_{entry.entry_id}",
+                )
             hass.config_entries.async_add_entry(hass, group_entry)
         new_data = {k: v for k, v in entry.data.items() if k != CONF_PAIR_WITH_ENTRY_ID}
         hass.config_entries.async_update_entry(entry, data=new_data)
