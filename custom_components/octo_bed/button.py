@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from homeassistant.components.button import ButtonEntity
+from homeassistant.core import callback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
@@ -69,6 +70,18 @@ class OctoBedButton(ButtonEntity):
         self._attr_icon = icon
         self._attr_unique_id = f"octo_bed_{action}"
         self._attr_device_info = device_info
+        client.register_calibration_state_callback(self._on_calibration_state_changed)
+
+    @callback
+    def _on_calibration_state_changed(self) -> None:
+        """Update availability when calibration state changes."""
+        self._attr_available = not self._client.is_calibration_active()
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Return True if calibration is not active (Stop allowed only when not calibrating)."""
+        return not self._client.is_calibration_active()
 
     async def async_press(self) -> None:
         """Press the button."""
@@ -101,6 +114,17 @@ class OctoBedCalibrateButton(ButtonEntity):
         self._attr_unique_id = f"octo_bed_{action}"
         self._attr_device_info = device_info
         self._part = "head" if "head" in action else "feet"
+        client.register_calibration_state_callback(self._on_calibration_state_changed)
+
+    @callback
+    def _on_calibration_state_changed(self) -> None:
+        """Update availability when calibration state changes."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Available only when no calibration is active."""
+        return not self._client.is_calibration_active()
 
     async def async_press(self) -> None:
         """Start calibration: move this part up and start counting seconds."""
@@ -126,6 +150,17 @@ class OctoBedCompleteCalibrationButton(ButtonEntity):
         self._client = client
         self._entry = entry
         self._attr_device_info = device_info
+        client.register_calibration_state_callback(self._on_calibration_state_changed)
+
+    @callback
+    def _on_calibration_state_changed(self) -> None:
+        """Update availability when calibration state changes."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Available only during tracking phase (not while moving down)."""
+        return self._client.is_calibrating()
 
     async def async_press(self) -> None:
         """Complete calibration: save duration and move bed part back to 0%."""
