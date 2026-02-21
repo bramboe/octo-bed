@@ -19,6 +19,7 @@ from .const import (
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
 )
+from .octo_bed_client import OctoBedClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -134,24 +135,36 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         address[i : i + 2] for i in range(0, 12, 2)
                     )
 
-                device_name = (user_input.get("device_name") or "").strip()
-                title = f"Octo Bed ({address})" if not device_name else device_name
-                return self.async_create_entry(
-                    title=title,
-                    data={
-                        "address": address,
-                        "pin": pin,
-                    },
-                    options={
-                        CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
-                        CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
-                    },
+                bleak_device = bluetooth.async_ble_device_from_address(
+                    self.hass, address, connectable=True
                 )
+                if not bleak_device:
+                    errors["base"] = "device_unavailable"
+                else:
+                    client = OctoBedClient(bleak_device, pin)
+                    if not await client.connect_and_verify_pin():
+                        await client.disconnect()
+                        errors["base"] = "pin_rejected"
+                    else:
+                        await client.disconnect()
+                        device_name = (user_input.get("device_name") or "").strip()
+                        title = f"Octo Bed ({address})" if not device_name else device_name
+                        return self.async_create_entry(
+                            title=title,
+                            data={
+                                "address": address,
+                                "pin": pin,
+                            },
+                            options={
+                                CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
+                                CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
+                            },
+                        )
 
         schema = vol.Schema(
             {
-                vol.Required("pin"): str,
-                vol.Optional("device_name", default=""): str,
+                vol.Required("pin", default=user_input.get("pin", "") if user_input else ""): str,
+                vol.Optional("device_name", default=user_input.get("device_name", "") if user_input else ""): str,
             }
         )
 
