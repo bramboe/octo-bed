@@ -154,6 +154,24 @@ class GroupOctoBedClient:
         for c in self._clients:
             c.set_both_position(position)
 
+    async def run_to_position(
+        self,
+        head_target: int,
+        feet_target: int,
+        head_travel_seconds: float,
+        feet_travel_seconds: float,
+    ) -> None:
+        """Move all beds to the same head/feet position."""
+        await asyncio.gather(
+            *[
+                c.run_to_position(
+                    head_target, feet_target,
+                    head_travel_seconds, feet_travel_seconds,
+                )
+                for c in self._clients
+            ]
+        )
+
     async def _send_command(self, data: bytes) -> bool:
         results = await asyncio.gather(*[c._send_command(data) for c in self._clients])
         return all(results)
