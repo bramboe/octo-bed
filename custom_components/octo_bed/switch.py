@@ -9,7 +9,7 @@ from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -85,6 +85,17 @@ class OctoBedLightSwitch(SwitchEntity):
         self._client = client
         self._attr_device_info = device_info
         self._is_on: bool | None = None  # Unknown state initially
+        client.register_calibration_state_callback(self._on_calibration_state_changed)
+
+    @callback
+    def _on_calibration_state_changed(self) -> None:
+        """Update availability when calibration state changes."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Available only when no calibration is active."""
+        return not self._client.is_calibration_active()
 
     @property
     def is_on(self) -> bool | None:
@@ -128,6 +139,17 @@ class OctoBedMovementSwitch(SwitchEntity):
         self._is_on: bool = False
         self._full_travel_seconds = full_travel_seconds
         self._task: asyncio.Task[None] | None = None
+        client.register_calibration_state_callback(self._on_calibration_state_changed)
+
+    @callback
+    def _on_calibration_state_changed(self) -> None:
+        """Update availability when calibration state changes."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Available only when no calibration is active."""
+        return not self._client.is_calibration_active()
 
     @property
     def is_on(self) -> bool:
