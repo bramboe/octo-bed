@@ -24,19 +24,20 @@ async def async_setup_entry(
 ) -> None:
     """Set up Octo Bed diagnostic sensors from a config entry."""
     client: OctoBedClient = hass.data[DOMAIN][entry.entry_id]
+    uid = entry.unique_id or entry.entry_id
 
     device_info = DeviceInfo(
-        identifiers={(DOMAIN, entry.unique_id or entry.entry_id)},
+        identifiers={(DOMAIN, uid)},
         name=entry.title or "Octo Bed",
         manufacturer="Octo",
     )
 
     sensors = [
-        OctoBedCalibrationStatusSensor(client, device_info),
-        OctoBedMacAddressSensor(client, device_info),
-        OctoBedHeadPositionSensor(client, device_info),
-        OctoBedFeetPositionSensor(client, device_info),
-        OctoBedConnectionStatusSensor(client, device_info),
+        OctoBedCalibrationStatusSensor(client, device_info, uid),
+        OctoBedMacAddressSensor(client, device_info, uid),
+        OctoBedHeadPositionSensor(client, device_info, uid),
+        OctoBedFeetPositionSensor(client, device_info, uid),
+        OctoBedConnectionStatusSensor(client, device_info, uid),
     ]
 
     async_add_entities(sensors)
@@ -48,13 +49,13 @@ class OctoBedCalibrationStatusSensor(SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_has_entity_name = True
     _attr_icon = "mdi:ruler"
-    _attr_unique_id = "octo_bed_calibration_status"
     _attr_name = "Calibration status"
 
-    def __init__(self, client: OctoBedClient, device_info: DeviceInfo) -> None:
+    def __init__(self, client: OctoBedClient, device_info: DeviceInfo, unique_id_prefix: str) -> None:
         """Initialize the calibration status sensor."""
         self._client = client
         self._attr_device_info = device_info
+        self._attr_unique_id = f"{unique_id_prefix}_calibration_status"
         client.register_calibration_state_callback(self._on_calibration_state_changed)
 
     @callback
@@ -96,6 +97,7 @@ class OctoBedDiagnosticSensor(SensorEntity):
         self,
         client: OctoBedClient,
         device_info: DeviceInfo,
+        unique_id_prefix: str,
         unique_id_suffix: str,
         name: str,
         icon: str,
@@ -103,7 +105,7 @@ class OctoBedDiagnosticSensor(SensorEntity):
         """Initialize the sensor."""
         self._client = client
         self._attr_device_info = device_info
-        self._attr_unique_id = f"octo_bed_{unique_id_suffix}"
+        self._attr_unique_id = f"{unique_id_prefix}_{unique_id_suffix}"
         self._attr_name = name
         self._attr_icon = icon
 
@@ -113,11 +115,12 @@ class OctoBedMacAddressSensor(OctoBedDiagnosticSensor):
 
     _attr_icon = "mdi:bluetooth"
 
-    def __init__(self, client: OctoBedClient, device_info: DeviceInfo) -> None:
+    def __init__(self, client: OctoBedClient, device_info: DeviceInfo, unique_id_prefix: str) -> None:
         """Initialize the MAC address sensor."""
         super().__init__(
             client,
             device_info,
+            unique_id_prefix,
             "mac_address",
             "MAC address",
             "mdi:bluetooth",
@@ -134,11 +137,12 @@ class OctoBedHeadPositionSensor(OctoBedDiagnosticSensor):
 
     _attr_native_unit_of_measurement = "%"
 
-    def __init__(self, client: OctoBedClient, device_info: DeviceInfo) -> None:
+    def __init__(self, client: OctoBedClient, device_info: DeviceInfo, unique_id_prefix: str) -> None:
         """Initialize the head position sensor."""
         super().__init__(
             client,
             device_info,
+            unique_id_prefix,
             "head_position",
             "Head position",
             "mdi:arrow-up-down",
@@ -162,11 +166,12 @@ class OctoBedFeetPositionSensor(OctoBedDiagnosticSensor):
 
     _attr_native_unit_of_measurement = "%"
 
-    def __init__(self, client: OctoBedClient, device_info: DeviceInfo) -> None:
+    def __init__(self, client: OctoBedClient, device_info: DeviceInfo, unique_id_prefix: str) -> None:
         """Initialize the feet position sensor."""
         super().__init__(
             client,
             device_info,
+            unique_id_prefix,
             "feet_position",
             "Feet position",
             "mdi:arrow-up-down",
@@ -192,11 +197,12 @@ class OctoBedConnectionStatusSensor(OctoBedDiagnosticSensor):
     _attr_should_poll = True
     _attr_update_interval = timedelta(seconds=30)
 
-    def __init__(self, client: OctoBedClient, device_info: DeviceInfo) -> None:
+    def __init__(self, client: OctoBedClient, device_info: DeviceInfo, unique_id_prefix: str) -> None:
         """Initialize the connection status sensor."""
         super().__init__(
             client,
             device_info,
+            unique_id_prefix,
             "connection_status",
             "Connection status",
             "mdi:bluetooth-connect",
