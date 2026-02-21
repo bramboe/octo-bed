@@ -15,9 +15,13 @@ from homeassistant.data_entry_flow import FlowResult
 from .const import (
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_HEAD_FULL_TRAVEL_SECONDS,
+    CONF_PAIR_WITH_ENTRY_ID,
     CONF_SHOW_CALIBRATION_BUTTONS,
+    CONF_ENTRY_IDS,
+    CONF_TYPE,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
+    TYPE_COMBINED,
 )
 from .octo_bed_client import OctoBedClient
 
@@ -149,16 +153,22 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         await client.disconnect()
                         device_name = (user_input.get("device_name") or "").strip()
                         title = f"Octo Bed ({address})" if not device_name else device_name
+                        self._pending_title = title
+                        self._pending_data = {"address": address, "pin": pin}
+                        self._pending_options = {
+                            CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
+                            CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
+                        }
+                        existing_single = [
+                            e for e in self.hass.config_entries.async_entries(DOMAIN)
+                            if e.data.get(CONF_TYPE) != TYPE_COMBINED
+                        ]
+                        if len(existing_single) > 0:
+                            return await self.async_step_pair()
                         return self.async_create_entry(
-                            title=title,
-                            data={
-                                "address": address,
-                                "pin": pin,
-                            },
-                            options={
-                                CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
-                                CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
-                            },
+                            title=self._pending_title,
+                            data=dict(self._pending_data),
+                            options=self._pending_options,
                         )
 
         schema = vol.Schema(
@@ -172,6 +182,41 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="pin",
             data_schema=schema,
             errors=errors,
+        )
+
+    async def async_step_pair(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Optional: pair this bed with an existing one to create a combined device."""
+        if user_input is not None:
+            data = dict(self._pending_data)
+            if user_input.get(CONF_PAIR_WITH_ENTRY_ID):
+                data[CONF_PAIR_WITH_ENTRY_ID] = user_input[CONF_PAIR_WITH_ENTRY_ID]
+            return self.async_create_entry(
+                title=self._pending_title,
+                data=data,
+                options=self._pending_options,
+            )
+
+        existing = [
+            e
+            for e in self.hass.config_entries.async_entries(DOMAIN)
+            if e.data.get(CONF_TYPE) != TYPE_COMBINED
+        ]
+        choice_ids = [""] + [e.entry_id for e in existing]
+        choices = [("", "Don't pair")] + [(e.entry_id, e.title) for e in existing]
+
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_PAIR_WITH_ENTRY_ID, default=""): vol.In(choice_ids),
+            }
+        )
+        return self.async_show_form(
+            step_id="pair",
+            data_schema=schema,
+            description_placeholders={
+                "pair_description": "Optionally pair this bed with an existing one to create a third device that controls both beds together. Each bed remains its own device."
+            },
         )
 
 
