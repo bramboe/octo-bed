@@ -17,6 +17,7 @@ from .const import (
     CONF_HEAD_FULL_TRAVEL_SECONDS,
     CONF_IS_GROUP,
     CONF_MEMBER_ENTRY_IDS,
+    CONF_PAIR_WITH_ENTRY_ID,
     CONF_SHOW_CALIBRATION_BUTTONS,
     DOMAIN,
 )
@@ -24,6 +25,24 @@ from .group_client import GroupOctoBedClient
 from .octo_bed_client import OctoBedClient
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _is_paired_bed(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """True if this is a single bed that belongs to a pair (calibration only on group)."""
+    if entry.data.get(CONF_IS_GROUP):
+        return False
+    return (
+        any(
+            e.data.get(CONF_IS_GROUP)
+            and entry.entry_id in (e.data.get(CONF_MEMBER_ENTRY_IDS) or [])
+            for e in hass.config_entries.async_entries(DOMAIN)
+        )
+        or any(
+            e.data.get(CONF_PAIR_WITH_ENTRY_ID) == entry.entry_id
+            for e in hass.config_entries.async_entries(DOMAIN)
+            if e.entry_id != entry.entry_id
+        )
+    )
 
 
 async def async_setup_entry(
@@ -44,13 +63,9 @@ async def async_setup_entry(
     buttons: list[ButtonEntity] = [
         OctoBedButton(client, "stop", "Stop", "mdi:stop", device_info, uid),
     ]
-    # Calibration: only on group ("Both beds") device, or on unpaired beds
+    # Calibration only on the "Both beds" device; never on individual beds when paired
     is_group = entry.data.get(CONF_IS_GROUP)
-    is_member_of_group = not is_group and any(
-        e.data.get(CONF_IS_GROUP)
-        and entry.entry_id in (e.data.get(CONF_MEMBER_ENTRY_IDS) or [])
-        for e in hass.config_entries.async_entries(DOMAIN)
-    )
+    is_member_of_group = _is_paired_bed(hass, entry)
     show_calibration = entry.options.get(CONF_SHOW_CALIBRATION_BUTTONS, True) and (
         is_group or not is_member_of_group
     )
@@ -144,6 +159,8 @@ class OctoBedCalibrateButton(ButtonEntity):
 
     async def async_press(self) -> None:
         """Start calibration: move this part up and start counting seconds."""
+        if _is_paired_bed(self.hass, self._entry):
+            return  # Calibration only from "Both beds" device
         await self._client.start_calibration(self._part)
 
 
@@ -181,6 +198,8 @@ class OctoBedCompleteCalibrationButton(ButtonEntity):
 
     async def async_press(self) -> None:
         """Complete calibration: save duration and move bed part back to 0%."""
+        if _is_paired_bed(self.hass, self._entry):
+            return  # Calibration only from "Both beds" device
         part, duration_seconds = await self._client.complete_calibration()
         if part is None or duration_seconds <= 0:
             _LOGGER.warning("Complete calibration pressed but no calibration was active")
