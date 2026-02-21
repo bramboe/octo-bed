@@ -154,10 +154,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 for _ in range(60):  # up to 30 s at 0.5 s interval
                     if all(eid in domain_data for eid in member_ids):
                         await hass.config_entries.async_add(group_entry)
-                        # Reload both member entries so they re-run setup and hide
-                        # calibration (group now exists so both are seen as paired)
-                        for eid in member_ids:
-                            hass.config_entries.async_schedule_reload(eid)
                         break
                     await asyncio.sleep(0.5)
                     domain_data = hass.data.get(DOMAIN) or {}
@@ -194,8 +190,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove a config entry. Also remove any 'Both beds' group that contained this bed."""
+    """Remove a config entry. If it was a bed, remove any 'Both beds' group containing it.
+    If it was the group, reload the two member beds so their calibration controls become active."""
     removed_id = entry.entry_id
+    if entry.data.get(CONF_IS_GROUP):
+        member_ids = entry.data.get(CONF_MEMBER_ENTRY_IDS) or []
+        for entry_id in member_ids:
+            try:
+                await hass.config_entries.async_reload(entry_id)
+            except Exception:  # noqa: BLE001
+                pass
+        return
     for other in hass.config_entries.async_entries(DOMAIN):
         if not other.data.get(CONF_IS_GROUP):
             continue
