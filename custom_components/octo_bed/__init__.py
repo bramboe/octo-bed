@@ -187,3 +187,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop(entry.entry_id, None)
 
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove a config entry. Also remove any 'Both beds' group that contained this bed."""
+    removed_id = entry.entry_id
+    for other in hass.config_entries.async_entries(DOMAIN):
+        if not other.data.get(CONF_IS_GROUP):
+            continue
+        member_ids = other.data.get(CONF_MEMBER_ENTRY_IDS) or []
+        if removed_id in member_ids:
+            _LOGGER.info("Removing group entry 'Both beds' because a member bed was removed")
+            await hass.config_entries.async_remove(other.entry_id)
+            break
