@@ -154,6 +154,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 for _ in range(60):  # up to 30 s at 0.5 s interval
                     if all(eid in domain_data for eid in member_ids):
                         await hass.config_entries.async_add(group_entry)
+                        # Reload both member entries so they re-run setup and hide
+                        # calibration (group now exists so both are seen as paired)
+                        for eid in member_ids:
+                            hass.config_entries.async_schedule_reload(eid)
                         break
                     await asyncio.sleep(0.5)
                     domain_data = hass.data.get(DOMAIN) or {}
