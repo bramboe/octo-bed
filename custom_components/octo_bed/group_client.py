@@ -122,15 +122,22 @@ class GroupOctoBedClient:
         results = await asyncio.gather(*[c.light_off() for c in self._clients])
         return all(results)
 
-    # Calibration not supported on group (each bed is calibrated separately)
+    # Calibration on group: run same calibration on all beds in parallel
     async def start_calibration(self, part: str) -> None:
-        pass
+        await asyncio.gather(*[c.start_calibration(part) for c in self._clients])
 
     async def complete_calibration(self) -> tuple[str | None, float]:
-        return (None, 0.0)
+        results = await asyncio.gather(*[c.complete_calibration() for c in self._clients])
+        part: str | None = None
+        duration: float = 0.0
+        for p, d in results:
+            if p is not None and d > duration:
+                part = p
+                duration = d
+        return (part, duration)
 
     async def move_part_down_for_seconds(self, part: str, seconds: float) -> None:
-        pass
+        await asyncio.gather(*[c.move_part_down_for_seconds(part, seconds) for c in self._clients])
 
     def set_head_position(self, position: int) -> None:
         for c in self._clients:
