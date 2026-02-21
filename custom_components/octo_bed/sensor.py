@@ -12,6 +12,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
+from .helpers import entry_is_member_of_group
 from .octo_bed_client import OctoBedClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,13 +33,15 @@ async def async_setup_entry(
         manufacturer="Octo",
     )
 
-    sensors = [
-        OctoBedCalibrationStatusSensor(client, device_info, uid),
+    sensors: list[SensorEntity] = [
         OctoBedMacAddressSensor(client, device_info, uid),
         OctoBedHeadPositionSensor(client, device_info, uid),
         OctoBedFeetPositionSensor(client, device_info, uid),
         OctoBedConnectionStatusSensor(client, device_info, uid),
     ]
+    # Calibration status only on unpaired beds or on the "Both beds" device
+    if not entry_is_member_of_group(hass, entry):
+        sensors.insert(0, OctoBedCalibrationStatusSensor(client, device_info, uid))
 
     async_add_entities(sensors)
 
