@@ -17,32 +17,24 @@ from .const import (
     CONF_HEAD_FULL_TRAVEL_SECONDS,
     CONF_IS_GROUP,
     CONF_MEMBER_ENTRY_IDS,
-    CONF_PAIR_WITH_ENTRY_ID,
     CONF_SHOW_CALIBRATION_BUTTONS,
     DOMAIN,
 )
-from .group_client import GroupOctoBedClient
 from .octo_bed_client import OctoBedClient
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def _is_paired_bed(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """True if this is a single bed that belongs to a pair (calibration only on group)."""
+def _is_entry_in_paired_group(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Return True if this bed entry is a member of a 'Both beds' group (calibration only on group)."""
     if entry.data.get(CONF_IS_GROUP):
         return False
-    return (
-        any(
-            e.data.get(CONF_IS_GROUP)
-            and entry.entry_id in (e.data.get(CONF_MEMBER_ENTRY_IDS) or [])
-            for e in hass.config_entries.async_entries(DOMAIN)
-        )
-        or any(
-            e.data.get(CONF_PAIR_WITH_ENTRY_ID) == entry.entry_id
-            for e in hass.config_entries.async_entries(DOMAIN)
-            if e.entry_id != entry.entry_id
-        )
-    )
+    for other in hass.config_entries.async_entries(DOMAIN):
+        if not other.data.get(CONF_IS_GROUP):
+            continue
+        if entry.entry_id in (other.data.get(CONF_MEMBER_ENTRY_IDS) or []):
+            return True
+    return False
 
 
 async def async_setup_entry(
@@ -51,8 +43,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Octo Bed buttons from a config entry."""
-    client = hass.data[DOMAIN][entry.entry_id]
+    client: OctoBedClient = hass.data[DOMAIN][entry.entry_id]
     uid = entry.unique_id or entry.entry_id
+    calibration_disabled_paired = _is_entry_in_paired_group(hass, entry)
 
     device_info = DeviceInfo(
         identifiers={(DOMAIN, uid)},
@@ -63,17 +56,11 @@ async def async_setup_entry(
     buttons: list[ButtonEntity] = [
         OctoBedButton(client, "stop", "Stop", "mdi:stop", device_info, uid),
     ]
-    # Calibration only on the "Both beds" device; never on individual beds when paired
-    is_group = entry.data.get(CONF_IS_GROUP)
-    is_member_of_group = _is_paired_bed(hass, entry)
-    show_calibration = entry.options.get(CONF_SHOW_CALIBRATION_BUTTONS, True) and (
-        is_group or not is_member_of_group
-    )
-    if show_calibration:
+    if entry.options.get(CONF_SHOW_CALIBRATION_BUTTONS, True):
         buttons.extend([
-            OctoBedCalibrateButton(client, entry, "calibrate_head", "Calibrate head", "mdi:arrow-up-bold", device_info, uid),
-            OctoBedCalibrateButton(client, entry, "calibrate_feet", "Calibrate feet", "mdi:arrow-up-bold", device_info, uid),
-            OctoBedCompleteCalibrationButton(client, entry, device_info, uid),
+            OctoBedCalibrateButton(client, entry, "calibrate_head", "Calibrate head", "mdi:arrow-up-bold", device_info, uid, calibration_disabled_paired),
+            OctoBedCalibrateButton(client, entry, "calibrate_feet", "Calibrate feet", "mdi:arrow-up-bold", device_info, uid, calibration_disabled_paired),
+            OctoBedCompleteCalibrationButton(client, entry, device_info, uid, calibration_disabled_paired),
         ])
 
     async_add_entities(buttons)
@@ -135,6 +122,7 @@ class OctoBedCalibrateButton(ButtonEntity):
         icon: str,
         device_info: DeviceInfo,
         unique_id_prefix: str,
+        disabled_when_paired: bool = False,
     ) -> None:
         """Initialize the calibration button."""
         self._client = client
@@ -145,6 +133,7 @@ class OctoBedCalibrateButton(ButtonEntity):
         self._attr_unique_id = f"{unique_id_prefix}_{action}"
         self._attr_device_info = device_info
         self._part = "head" if "head" in action else "feet"
+        self._disabled_when_paired = disabled_when_paired
         client.register_calibration_state_callback(self._on_calibration_state_changed)
 
     @callback
@@ -154,13 +143,13 @@ class OctoBedCalibrateButton(ButtonEntity):
 
     @property
     def available(self) -> bool:
-        """Available only when no calibration is active."""
+        """Unavailable when paired (calibrate via Both beds) or when calibration is active."""
+        if self._disabled_when_paired:
+            return False
         return not self._client.is_calibration_active()
 
     async def async_press(self) -> None:
         """Start calibration: move this part up and start counting seconds."""
-        if _is_paired_bed(self.hass, self._entry):
-            return  # Calibration only from "Both beds" device
         await self._client.start_calibration(self._part)
 
 
@@ -178,12 +167,14 @@ class OctoBedCompleteCalibrationButton(ButtonEntity):
         entry: ConfigEntry,
         device_info: DeviceInfo,
         unique_id_prefix: str,
+        disabled_when_paired: bool = False,
     ) -> None:
         """Initialize the complete calibration button."""
         self._client = client
         self._entry = entry
         self._attr_device_info = device_info
         self._attr_unique_id = f"{unique_id_prefix}_complete_calibration"
+        self._disabled_when_paired = disabled_when_paired
         client.register_calibration_state_callback(self._on_calibration_state_changed)
 
     @callback
@@ -193,13 +184,13 @@ class OctoBedCompleteCalibrationButton(ButtonEntity):
 
     @property
     def available(self) -> bool:
-        """Available only during tracking phase (not while moving down)."""
+        """Unavailable when paired (calibrate via Both beds) or when not in tracking phase."""
+        if self._disabled_when_paired:
+            return False
         return self._client.is_calibrating()
 
     async def async_press(self) -> None:
         """Complete calibration: save duration and move bed part back to 0%."""
-        if _is_paired_bed(self.hass, self._entry):
-            return  # Calibration only from "Both beds" device
         part, duration_seconds = await self._client.complete_calibration()
         if part is None or duration_seconds <= 0:
             _LOGGER.warning("Complete calibration pressed but no calibration was active")
