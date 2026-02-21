@@ -12,7 +12,7 @@ from homeassistant.components.cover import (
     CoverEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -82,8 +82,19 @@ class OctoBedCover(CoverEntity):
         self._move_task: asyncio.Task[None] | None = None
         self._attr_is_closed = True  # 0% = closed
         self._current_command: str | None = None  # Track which command is currently being sent
-        # Register for position updates
+        # Register for position updates and calibration state
         self._client.register_position_callback(self._on_position_changed)
+        self._client.register_calibration_state_callback(self._on_calibration_state_changed)
+
+    @callback
+    def _on_calibration_state_changed(self) -> None:
+        """Update availability when calibration state changes."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Available only when no calibration is active."""
+        return not self._client.is_calibration_active()
 
     @property
     def current_cover_position(self) -> int | None:
