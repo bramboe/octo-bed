@@ -45,12 +45,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if len(member_ids) < 2:
             _LOGGER.error("Group entry has fewer than 2 members")
             return False
-        clients = []
-        for eid in member_ids:
-            if eid not in hass.data.get(DOMAIN, {}):
-                _LOGGER.error("Group member %s not yet set up", eid)
-                return False
-            clients.append(hass.data[DOMAIN][eid])
+        domain_data = hass.data.get(DOMAIN) or {}
+        missing = [eid for eid in member_ids if eid not in domain_data]
+        if missing:
+            _LOGGER.debug(
+                "Group entry waiting for members %s; will retry shortly",
+                missing,
+            )
+
+            async def _retry_group_setup() -> None:
+                await asyncio.sleep(10)
+                await hass.config_entries.async_reload(entry.entry_id)
+
+            hass.async_create_task(_retry_group_setup())
+            return False
+        clients = [hass.data[DOMAIN][eid] for eid in member_ids]
         hass.data[DOMAIN][entry.entry_id] = GroupOctoBedClient(clients)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         return True
