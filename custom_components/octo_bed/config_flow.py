@@ -17,6 +17,7 @@ from homeassistant.data_entry_flow import FlowResult
 
 from .const import (
     CONF_FEET_FULL_TRAVEL_SECONDS,
+    CONF_FULL_TRAVEL_SECONDS,
     CONF_HEAD_FULL_TRAVEL_SECONDS,
     CONF_IS_GROUP,
     CONF_MEMBER_ENTRY_IDS,
@@ -133,7 +134,11 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if len(non_group) < 2:
             return self.async_abort(reason="need_two_beds")
 
-        if user_input is not None:
+        # Exactly 2 beds: use them directly, no need to ask which two
+        if len(non_group) == 2:
+            entry1, entry2 = non_group[0], non_group[1]
+            eid1, eid2 = entry1.entry_id, entry2.entry_id
+        elif user_input is not None:
             eid1 = user_input.get("bed_1")
             eid2 = user_input.get("bed_2")
             if not eid1 or not eid2 or eid1 == eid2:
@@ -146,56 +151,69 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             entry2 = self.hass.config_entries.async_get_entry(eid2)
             if not entry1 or not entry2:
                 return self.async_abort(reason="entry_not_found")
-            member_ids = [eid1, eid2]
-            member_set = set(member_ids)
-            for e in self.hass.config_entries.async_entries(DOMAIN):
-                if not e.data.get(CONF_IS_GROUP):
-                    continue
-                existing = set(e.data.get(CONF_MEMBER_ENTRY_IDS) or [])
-                if existing == member_set:
-                    return self.async_abort(reason="already_paired")
-            group_options = dict(entry1.options or {})
-            if not group_options:
-                group_options = {
-                    CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
-                    CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
-                    CONF_SHOW_CALIBRATION_BUTTONS: False,
-                }
-            group_data = {
-                CONF_IS_GROUP: True,
-                CONF_MEMBER_ENTRY_IDS: member_ids,
-            }
-            unique_id = f"group_{eid1}_{eid2}"
-            try:
-                group_entry = ConfigEntry(
-                    version=1,
-                    minor_version=0,
-                    domain=DOMAIN,
-                    title="Both beds",
-                    data=group_data,
-                    options=group_options,
-                    source=SOURCE_IMPORT,
-                    unique_id=unique_id,
-                    discovery_keys=MappingProxyType({}),
-                    subentries_data=None,
-                )
-            except TypeError:
-                group_entry = ConfigEntry(
-                    version=1,
-                    domain=DOMAIN,
-                    title="Both beds",
-                    data=group_data,
-                    options=group_options,
-                    source=SOURCE_IMPORT,
-                    unique_id=unique_id,
-                )
-            await self.hass.config_entries.async_add(group_entry)
-            return self.async_abort(reason="pair_created")
+        else:
+            return self.async_show_form(
+                step_id="pair_existing",
+                data_schema=self._pair_existing_schema(non_group),
+            )
 
-        return self.async_show_form(
-            step_id="pair_existing",
-            data_schema=self._pair_existing_schema(non_group),
-        )
+        member_ids = [eid1, eid2]
+        member_set = set(member_ids)
+        for e in self.hass.config_entries.async_entries(DOMAIN):
+            if not e.data.get(CONF_IS_GROUP):
+                continue
+            existing = set(e.data.get(CONF_MEMBER_ENTRY_IDS) or [])
+            if existing == member_set:
+                return self.async_abort(reason="already_paired")
+        group_options = dict(entry1.options or {})
+        if not group_options:
+            group_options = {
+                CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
+                CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
+                CONF_SHOW_CALIBRATION_BUTTONS: False,
+            }
+        # Unify calibration: ensure both beds have the same head/feet travel as the group
+        head = group_options.get(CONF_HEAD_FULL_TRAVEL_SECONDS, group_options.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
+        feet = group_options.get(CONF_FEET_FULL_TRAVEL_SECONDS, group_options.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
+        group_options[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
+        group_options[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
+        for member_entry in (entry1, entry2):
+            merged = dict(member_entry.options or {})
+            merged[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
+            merged[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
+            if CONF_SHOW_CALIBRATION_BUTTONS in group_options:
+                merged[CONF_SHOW_CALIBRATION_BUTTONS] = group_options[CONF_SHOW_CALIBRATION_BUTTONS]
+            self.hass.config_entries.async_update_entry(member_entry, options=merged)
+        group_data = {
+            CONF_IS_GROUP: True,
+            CONF_MEMBER_ENTRY_IDS: member_ids,
+        }
+        unique_id = f"group_{eid1}_{eid2}"
+        try:
+            group_entry = ConfigEntry(
+                version=1,
+                minor_version=0,
+                domain=DOMAIN,
+                title="Both beds",
+                data=group_data,
+                options=group_options,
+                source=SOURCE_IMPORT,
+                unique_id=unique_id,
+                discovery_keys=MappingProxyType({}),
+                subentries_data=None,
+            )
+        except TypeError:
+            group_entry = ConfigEntry(
+                version=1,
+                domain=DOMAIN,
+                title="Both beds",
+                data=group_data,
+                options=group_options,
+                source=SOURCE_IMPORT,
+                unique_id=unique_id,
+            )
+        await self.hass.config_entries.async_add(group_entry)
+        return self.async_abort(reason="pair_created")
 
     def _pair_existing_schema(
         self, non_group: list[ConfigEntry]
