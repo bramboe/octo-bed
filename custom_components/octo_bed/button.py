@@ -311,14 +311,45 @@ class OctoBedSyncToOtherButton(ButtonEntity):
             and other_client.get_feet_position() == 0
         )
 
+    def _calibration_differs_from_other(self) -> str | None:
+        """When only 2 individual beds (no group): return message if calibration differs, else None."""
+        all_entries = list(self.hass.config_entries.async_entries(DOMAIN))
+        non_group = [e for e in all_entries if not (e.data or {}).get(CONF_IS_GROUP)]
+        has_group = any((e.data or {}).get(CONF_IS_GROUP) for e in all_entries)
+        if len(non_group) != 2 or has_group:
+            return None
+        other_entry = self.hass.config_entries.async_get_entry(self._other_entry_id)
+        if not other_entry:
+            return None
+        opts_self = self._entry.options or {}
+        opts_other = other_entry.options or {}
+        default = DEFAULT_FULL_TRAVEL_SECONDS
+        head_self = opts_self.get(CONF_HEAD_FULL_TRAVEL_SECONDS, opts_self.get(CONF_FULL_TRAVEL_SECONDS, default))
+        feet_self = opts_self.get(CONF_FEET_FULL_TRAVEL_SECONDS, opts_self.get(CONF_FULL_TRAVEL_SECONDS, default))
+        head_other = opts_other.get(CONF_HEAD_FULL_TRAVEL_SECONDS, opts_other.get(CONF_FULL_TRAVEL_SECONDS, default))
+        feet_other = opts_other.get(CONF_FEET_FULL_TRAVEL_SECONDS, opts_other.get(CONF_FULL_TRAVEL_SECONDS, default))
+        if head_self != head_other or feet_self != feet_other:
+            return "Calibration differs from other bed"
+        return None
+
     @property
     def available(self) -> bool:
-        """Unavailable during calibration or when the other bed is at 0% head and feet."""
+        """Unavailable during calibration, when the other bed is at 0%, or when calibration differs (2 beds only)."""
         if self._client.is_calibration_active():
             return False
         if self._source_at_zero():
             return False
+        if self._calibration_differs_from_other():
+            return False
         return True
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str | None]:
+        """Expose unavailable reason when calibration differs."""
+        reason = self._calibration_differs_from_other()
+        if reason:
+            return {"unavailable_reason": reason}
+        return {}
 
     async def async_press(self) -> None:
         """Copy the other bed's head/feet position to this bed."""
