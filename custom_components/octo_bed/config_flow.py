@@ -116,7 +116,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required("method", default="discovered"): vol.In(
-                        method_options
+                        dict(method_options)
                     ),
                 }
             ),
