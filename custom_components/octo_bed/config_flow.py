@@ -16,7 +16,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 
 from .const import (
-    CONF_EXPOSE_HEAD_FEET_COVERS,
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_FULL_TRAVEL_SECONDS,
     CONF_HEAD_FULL_TRAVEL_SECONDS,
@@ -172,7 +171,6 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
                 CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
                 CONF_SHOW_CALIBRATION_BUTTONS: False,
-                CONF_EXPOSE_HEAD_FEET_COVERS: True,
             }
         # Unify calibration: ensure both beds have the same head/feet travel as the group
         head = group_options.get(CONF_HEAD_FULL_TRAVEL_SECONDS, group_options.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
@@ -185,8 +183,6 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             merged[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
             if CONF_SHOW_CALIBRATION_BUTTONS in group_options:
                 merged[CONF_SHOW_CALIBRATION_BUTTONS] = group_options[CONF_SHOW_CALIBRATION_BUTTONS]
-            if CONF_EXPOSE_HEAD_FEET_COVERS in group_options:
-                merged[CONF_EXPOSE_HEAD_FEET_COVERS] = group_options[CONF_EXPOSE_HEAD_FEET_COVERS]
             self.hass.config_entries.async_update_entry(member_entry, options=merged)
         group_data = {
             CONF_IS_GROUP: True,
@@ -483,7 +479,6 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
                 CONF_HEAD_FULL_TRAVEL_SECONDS: head,
                 CONF_FEET_FULL_TRAVEL_SECONDS: feet,
                 CONF_SHOW_CALIBRATION_BUTTONS: user_input[CONF_SHOW_CALIBRATION_BUTTONS],
-                CONF_EXPOSE_HEAD_FEET_COVERS: user_input[CONF_EXPOSE_HEAD_FEET_COVERS],
             }
             # When paired: keep head/feet travel in sync across group and both member beds
             for entry_id in _get_related_entry_ids(self.hass, self.config_entry):
@@ -496,7 +491,6 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
                 merged[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
                 merged[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
                 merged[CONF_SHOW_CALIBRATION_BUTTONS] = new_options[CONF_SHOW_CALIBRATION_BUTTONS]
-                merged[CONF_EXPOSE_HEAD_FEET_COVERS] = new_options[CONF_EXPOSE_HEAD_FEET_COVERS]
                 self.hass.config_entries.async_update_entry(other, options=merged)
             return self.async_create_entry(title="", data=new_options)
 
@@ -509,12 +503,11 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
     def _options_schema(
         self, input_values: dict[str, Any] | None = None
     ) -> vol.Schema:
-        """Build options schema: travel times, calibration, and cover exposure."""
+        """Build options schema: travel times + show calibration buttons."""
         opts = input_values or self.config_entry.options
         current_head = opts.get(CONF_HEAD_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
         current_feet = opts.get(CONF_FEET_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
         current_buttons = opts.get(CONF_SHOW_CALIBRATION_BUTTONS, True)
-        expose_head_feet = opts.get(CONF_EXPOSE_HEAD_FEET_COVERS, True)
         return vol.Schema(
             {
                 vol.Required(
@@ -528,10 +521,6 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
                 vol.Required(
                     CONF_SHOW_CALIBRATION_BUTTONS,
                     default=current_buttons,
-                ): bool,
-                vol.Required(
-                    CONF_EXPOSE_HEAD_FEET_COVERS,
-                    default=expose_head_feet,
                 ): bool,
             }
         )
