@@ -10,12 +10,14 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
+from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 
 from .const import (
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_HEAD_FULL_TRAVEL_SECONDS,
     CONF_IS_GROUP,
+    CONF_MEMBER_ENTRY_IDS,
     CONF_PAIR_WITH_ENTRY_ID,
     CONF_SHOW_CALIBRATION_BUTTONS,
     DEFAULT_FULL_TRAVEL_SECONDS,
@@ -42,6 +44,21 @@ def _is_octo_bed(info: BluetoothServiceInfoBleak) -> bool:
     if info.service_uuids and OCTO_BED_SERVICE_UUID in info.service_uuids:
         return True
     return False
+
+
+def _get_related_entry_ids(hass: HomeAssistant, entry: config_entries.ConfigEntry) -> list[str]:
+    """Return entry IDs that share the same pair (this entry + group + other member if paired)."""
+    entry_id = entry.entry_id
+    if entry.data.get(CONF_IS_GROUP):
+        member_ids = entry.data.get(CONF_MEMBER_ENTRY_IDS) or []
+        return [entry_id, *member_ids]
+    for e in hass.config_entries.async_entries(DOMAIN):
+        if not e.data.get(CONF_IS_GROUP):
+            continue
+        member_ids = e.data.get(CONF_MEMBER_ENTRY_IDS) or []
+        if entry_id in member_ids:
+            return [entry_id, e.entry_id, *(m for m in member_ids if m != entry_id)]
+    return [entry_id]
 
 
 class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -337,14 +354,24 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
                     description_placeholders={"config_description": "Set full travel time (seconds) for head and feet (updated by calibration or default 30 s). Optionally show or hide the calibration buttons on the device."},
                     errors={"base": "invalid_range"},
                 )
-            return self.async_create_entry(
-                title="",
-                data={
-                    CONF_HEAD_FULL_TRAVEL_SECONDS: head,
-                    CONF_FEET_FULL_TRAVEL_SECONDS: feet,
-                    CONF_SHOW_CALIBRATION_BUTTONS: user_input[CONF_SHOW_CALIBRATION_BUTTONS],
-                },
-            )
+            new_options = {
+                CONF_HEAD_FULL_TRAVEL_SECONDS: head,
+                CONF_FEET_FULL_TRAVEL_SECONDS: feet,
+                CONF_SHOW_CALIBRATION_BUTTONS: user_input[CONF_SHOW_CALIBRATION_BUTTONS],
+            }
+            # When paired: keep head/feet travel in sync across group and both member beds
+            for entry_id in _get_related_entry_ids(self.hass, self.config_entry):
+                if entry_id == self.config_entry.entry_id:
+                    continue
+                other = self.hass.config_entries.async_get_entry(entry_id)
+                if other is None:
+                    continue
+                merged = dict(other.options or {})
+                merged[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
+                merged[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
+                merged[CONF_SHOW_CALIBRATION_BUTTONS] = new_options[CONF_SHOW_CALIBRATION_BUTTONS]
+                self.hass.config_entries.async_update_entry(other, options=merged)
+            return self.async_create_entry(title="", data=new_options)
 
         return self.async_show_form(
             step_id="init",
