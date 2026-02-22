@@ -101,9 +101,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         device_resolver=_get_device,
     )
 
-    if not await client.connect():
-        _LOGGER.error("Failed to connect to Octo bed")
-        return False
+    try:
+        if not await client.connect():
+            _LOGGER.error("Failed to connect to Octo bed")
+            return False
+    except asyncio.CancelledError:
+        raise  # allow HA to handle setup cancellation (e.g. reload during connect)
 
     hass.data[DOMAIN][entry.entry_id] = client
 
