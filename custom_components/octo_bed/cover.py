@@ -17,6 +17,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
+    CONF_EXPOSE_HEAD_FEET_COVERS,
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_FULL_TRAVEL_SECONDS,
     CONF_HEAD_FULL_TRAVEL_SECONDS,
@@ -44,13 +45,16 @@ async def async_setup_entry(
         manufacturer="Octo",
     )
 
-    # Order: both first so it is typically the primary cover in HomeKit when
-    # all three are grouped under the same device (head and feet as secondary).
-    covers = [
+    # When expose_head_feet_covers is False, only expose "Both" so HomeKit shows one cover per bed.
+    expose_head_feet = entry.options.get(CONF_EXPOSE_HEAD_FEET_COVERS, True)
+    covers: list[OctoBedCover] = [
         OctoBedCover(client, "both", "Both", device_info, entry, uid),
-        OctoBedCover(client, "head", "Head", device_info, entry, uid),
-        OctoBedCover(client, "feet", "Feet", device_info, entry, uid),
     ]
+    if expose_head_feet:
+        covers.extend([
+            OctoBedCover(client, "head", "Head", device_info, entry, uid),
+            OctoBedCover(client, "feet", "Feet", device_info, entry, uid),
+        ])
 
     async_add_entities(covers)
 
