@@ -19,6 +19,7 @@ from .const import (
     CONF_MEMBER_ENTRY_IDS,
     CONF_PAIR_WITH_ENTRY_ID,
     CONF_SHOW_CALIBRATION_BUTTONS,
+    CONF_SINGLE_COVER_FOR_HOMEKIT,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
 )
@@ -75,6 +76,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         opts[CONF_FEET_FULL_TRAVEL_SECONDS] = default_travel
     if CONF_SHOW_CALIBRATION_BUTTONS not in opts:
         opts[CONF_SHOW_CALIBRATION_BUTTONS] = True
+    if CONF_SINGLE_COVER_FOR_HOMEKIT not in opts:
+        opts[CONF_SINGLE_COVER_FOR_HOMEKIT] = False
     if opts != (entry.options or {}):
         hass.config_entries.async_update_entry(entry, options=opts)
 
@@ -123,6 +126,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
                     CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
                     CONF_SHOW_CALIBRATION_BUTTONS: False,
+                    CONF_SINGLE_COVER_FOR_HOMEKIT: False,
                 }
             # Unify calibration: set this bed's head/feet travel to match the other (group) so both are equal
             head = group_options.get(CONF_HEAD_FULL_TRAVEL_SECONDS, group_options.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
