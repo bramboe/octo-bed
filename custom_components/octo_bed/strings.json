@@ -57,8 +57,7 @@
         "data": {
           "head_full_travel_seconds": "Head full travel (seconds)",
           "feet_full_travel_seconds": "Feet full travel (seconds)",
-          "show_calibration_buttons": "Show calibration buttons",
-          "single_cover_for_homekit": "Single cover for HomeKit (one cover per bed)"
+          "show_calibration_buttons": "Show calibration buttons"
         }
       }
     },
