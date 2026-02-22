@@ -22,6 +22,7 @@ from .const import (
     CONF_HEAD_FULL_TRAVEL_SECONDS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
+    CONF_SINGLE_COVER_FOR_HOMEKIT,
     CMD_STOP,
 )
 from .octo_bed_client import OctoBedClient
@@ -44,11 +45,16 @@ async def async_setup_entry(
         manufacturer="Octo",
     )
 
-    covers = [
-        OctoBedCover(client, "head", "Head", device_info, entry, uid),
-        OctoBedCover(client, "feet", "Feet", device_info, entry, uid),
-        OctoBedCover(client, "both", "Both", device_info, entry, uid),
-    ]
+    single_cover = entry.options.get(CONF_SINGLE_COVER_FOR_HOMEKIT, False)
+    if single_cover:
+        # One cover only (Both) so HomeKit shows a single cover per bed; head/feet still via switches
+        covers = [OctoBedCover(client, "both", "Position", device_info, entry, uid)]
+    else:
+        covers = [
+            OctoBedCover(client, "head", "Head", device_info, entry, uid),
+            OctoBedCover(client, "feet", "Feet", device_info, entry, uid),
+            OctoBedCover(client, "both", "Both", device_info, entry, uid),
+        ]
 
     async_add_entities(covers)
 
