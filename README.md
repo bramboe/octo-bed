@@ -54,6 +54,10 @@ After setup, you'll get:
 
 The time for full travel (0% to 100%) defaults to 30 seconds. To change it: go to **Settings** → **Devices & Services** → **Octo Bed** → **Configure** and set "Full travel time (seconds)".
 
+### HomeKit
+
+The integration exposes three covers (Both, Head, Feet) on the same device. They are registered in that order so that when you add the Octo Bed device to the HomeKit Bridge, **Both** is typically shown as the primary control and Head/Feet as secondary (tap the accessory for individual controls). No manual grouping in `configuration.yaml` is required.
+
 ## Troubleshooting
 
 - **Connection fails**: Ensure the bed is powered on and in range. With a Bluetooth proxy, try pressing a button on the remote to wake the bed.
