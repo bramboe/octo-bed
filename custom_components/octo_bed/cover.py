@@ -24,7 +24,6 @@ from .const import (
     DOMAIN,
     CMD_STOP,
 )
-from .group_client import GroupOctoBedClient
 from .octo_bed_client import OctoBedClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -169,7 +168,7 @@ class OctoBedCover(CoverEntity):
         return max(head, feet)
 
     async def _async_move_to_position(self, target: int) -> None:
-        """Move cover to target position (0-100)."""
+        """Move cover to target position (0-100). Same logic for single bed and both-bed (group sends same command to both)."""
         # Get current position from shared state
         if self._cover_type == "head":
             current = self._client.get_head_position()
@@ -178,50 +177,11 @@ class OctoBedCover(CoverEntity):
         else:  # both
             current = self._client.get_both_position()
 
+        if target == current:
+            return
+
         # Check if this movement was cancelled due to conflict
         if self._move_task and self._move_task.cancelled():
-            return
-
-        # Group (both beds): move each bed to the target so they end up in sync
-        # (Do not skip when target==current — the two beds may be at different positions.)
-        if isinstance(self._client, GroupOctoBedClient):
-            default = self._entry.options.get(
-                CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
-            )
-            head_travel = float(
-                self._entry.options.get(CONF_HEAD_FULL_TRAVEL_SECONDS, default)
-            )
-            feet_travel = float(
-                self._entry.options.get(CONF_FEET_FULL_TRAVEL_SECONDS, default)
-            )
-            if self._cover_type == "head":
-                await self._client.run_to_position(
-                    target, self._client.get_feet_position(),
-                    head_travel, feet_travel,
-                )
-            elif self._cover_type == "feet":
-                await self._client.run_to_position(
-                    self._client.get_head_position(), target,
-                    head_travel, feet_travel,
-                )
-            else:
-                await self._client.run_to_position(
-                    target, target, head_travel, feet_travel,
-                )
-            if self._cover_type == "head":
-                self._client.set_head_position(target)
-            elif self._cover_type == "feet":
-                self._client.set_feet_position(target)
-            else:
-                self._client.set_both_position(target)
-            self._target_position = None
-            self._move_task = None
-            self._current_command = None
-            self._attr_is_closed = target == 0
-            self.async_write_ha_state()
-            return
-
-        if target == current:
             return
 
         full_travel = self._get_full_travel_seconds()
