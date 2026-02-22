@@ -23,6 +23,7 @@ from .const import (
     CONF_MEMBER_ENTRY_IDS,
     CONF_PAIR_WITH_ENTRY_ID,
     CONF_SHOW_CALIBRATION_BUTTONS,
+    CONF_SINGLE_COVER_FOR_HOMEKIT,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
     OCTO_BED_SERVICE_UUID,
@@ -171,6 +172,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
                 CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
                 CONF_SHOW_CALIBRATION_BUTTONS: False,
+                CONF_SINGLE_COVER_FOR_HOMEKIT: False,
             }
         # Unify calibration: ensure both beds have the same head/feet travel as the group
         head = group_options.get(CONF_HEAD_FULL_TRAVEL_SECONDS, group_options.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
@@ -479,6 +481,7 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
                 CONF_HEAD_FULL_TRAVEL_SECONDS: head,
                 CONF_FEET_FULL_TRAVEL_SECONDS: feet,
                 CONF_SHOW_CALIBRATION_BUTTONS: user_input[CONF_SHOW_CALIBRATION_BUTTONS],
+                CONF_SINGLE_COVER_FOR_HOMEKIT: user_input.get(CONF_SINGLE_COVER_FOR_HOMEKIT, False),
             }
             # When paired: keep head/feet travel in sync across group and both member beds
             for entry_id in _get_related_entry_ids(self.hass, self.config_entry):
@@ -491,6 +494,7 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
                 merged[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
                 merged[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
                 merged[CONF_SHOW_CALIBRATION_BUTTONS] = new_options[CONF_SHOW_CALIBRATION_BUTTONS]
+                merged[CONF_SINGLE_COVER_FOR_HOMEKIT] = new_options[CONF_SINGLE_COVER_FOR_HOMEKIT]
                 self.hass.config_entries.async_update_entry(other, options=merged)
             return self.async_create_entry(title="", data=new_options)
 
@@ -503,11 +507,12 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
     def _options_schema(
         self, input_values: dict[str, Any] | None = None
     ) -> vol.Schema:
-        """Build options schema: travel times + show calibration buttons."""
+        """Build options schema: travel times + show calibration buttons + single cover for HomeKit."""
         opts = input_values or self.config_entry.options
         current_head = opts.get(CONF_HEAD_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
         current_feet = opts.get(CONF_FEET_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
         current_buttons = opts.get(CONF_SHOW_CALIBRATION_BUTTONS, True)
+        current_single_cover = opts.get(CONF_SINGLE_COVER_FOR_HOMEKIT, False)
         return vol.Schema(
             {
                 vol.Required(
@@ -521,6 +526,10 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
                 vol.Required(
                     CONF_SHOW_CALIBRATION_BUTTONS,
                     default=current_buttons,
+                ): bool,
+                vol.Required(
+                    CONF_SINGLE_COVER_FOR_HOMEKIT,
+                    default=current_single_cover,
                 ): bool,
             }
         )
