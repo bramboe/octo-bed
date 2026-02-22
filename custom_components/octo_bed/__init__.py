@@ -12,6 +12,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from .const import (
+    CONF_EXPOSE_HEAD_FEET_COVERS,
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_FULL_TRAVEL_SECONDS,
     CONF_HEAD_FULL_TRAVEL_SECONDS,
@@ -75,6 +76,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         opts[CONF_FEET_FULL_TRAVEL_SECONDS] = default_travel
     if CONF_SHOW_CALIBRATION_BUTTONS not in opts:
         opts[CONF_SHOW_CALIBRATION_BUTTONS] = True
+    if CONF_EXPOSE_HEAD_FEET_COVERS not in opts:
+        opts[CONF_EXPOSE_HEAD_FEET_COVERS] = True  # backward compat: keep 3 covers unless user opts out
     if opts != (entry.options or {}):
         hass.config_entries.async_update_entry(entry, options=opts)
 
@@ -123,6 +126,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
                     CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
                     CONF_SHOW_CALIBRATION_BUTTONS: False,
+                    CONF_EXPOSE_HEAD_FEET_COVERS: True,
                 }
             # Unify calibration: set this bed's head/feet travel to match the other (group) so both are equal
             head = group_options.get(CONF_HEAD_FULL_TRAVEL_SECONDS, group_options.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
@@ -134,6 +138,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             current_opts[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
             if CONF_SHOW_CALIBRATION_BUTTONS in group_options:
                 current_opts[CONF_SHOW_CALIBRATION_BUTTONS] = group_options[CONF_SHOW_CALIBRATION_BUTTONS]
+            if CONF_EXPOSE_HEAD_FEET_COVERS in group_options:
+                current_opts[CONF_EXPOSE_HEAD_FEET_COVERS] = group_options[CONF_EXPOSE_HEAD_FEET_COVERS]
             hass.config_entries.async_update_entry(entry, options=current_opts)
             group_data = {
                 CONF_IS_GROUP: True,
