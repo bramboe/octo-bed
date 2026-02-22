@@ -2,11 +2,9 @@
   "config": {
     "step": {
       "user": {
-        "title": "Add Octo Bed",
-        "description": "Enter your Octo bed's Bluetooth address. With ESPHome Bluetooth proxy, use the bed's address (not the proxy).",
-        "data": {
-          "address": "Bluetooth address (e.g. F6:21:DD:DD:6F:19)"
-        }
+        "title": "Add or set up Octo Bed",
+        "description": "Choose how to add or set up an Octo bed.",
+        "data": {}
       },
       "confirm": {
         "title": "Octo Bed found",
@@ -26,16 +24,29 @@
         "data": {
           "pair": "Pair with"
         }
+      },
+      "pair_existing": {
+        "title": "Pair two beds",
+        "description": "Select the two beds to combine into one \"Both beds\" device. Each bed stays as its own device; the paired device adds shared controls.",
+        "data": {
+          "bed_1": "First bed",
+          "bed_2": "Second bed"
+        }
       }
     },
     "error": {
       "invalid_address": "Invalid Bluetooth address. Use format AA:BB:CC:DD:EE:FF (12 hex characters).",
       "invalid_pin": "PIN must be exactly 4 digits.",
       "pin_rejected": "The bed rejected this PIN. Check the PIN and try again.",
-      "device_unavailable": "Device not reachable. Ensure the bed is on and in range (or Bluetooth proxy is connected)."
+      "device_unavailable": "Device not reachable. Ensure the bed is on and in range (or Bluetooth proxy is connected).",
+      "select_two_different": "Select two different beds."
     },
     "abort": {
-      "already_configured": "This device is already configured."
+      "already_configured": "This device is already configured.",
+      "need_two_beds": "At least two beds are required to pair. Add another bed first.",
+      "entry_not_found": "One of the selected beds is no longer available.",
+      "pair_created": "Paired device \"Both beds\" has been created.",
+      "already_paired": "These two beds are already paired."
     }
   },
   "options": {
