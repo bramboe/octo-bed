@@ -269,15 +269,43 @@ class OctoBedSyncToOtherButton(ButtonEntity):
         self._other_title = other_title
         client.register_calibration_state_callback(self._on_calibration_state_changed)
 
+    async def async_added_to_hass(self) -> None:
+        """Register for source bed position updates so availability stays in sync."""
+        await super().async_added_to_hass()
+        domain_data = self.hass.data.get(DOMAIN) or {}
+        other_client = domain_data.get(self._other_entry_id)
+        if other_client is not None:
+            other_client.register_position_callback(self._on_source_position_changed)
+
+    @callback
+    def _on_source_position_changed(self, part: str, position: int) -> None:
+        """Update availability when the other bed's position changes."""
+        self.async_write_ha_state()
+
     @callback
     def _on_calibration_state_changed(self) -> None:
         """Update availability when calibration state changes."""
         self.async_write_ha_state()
 
+    def _source_at_zero(self) -> bool:
+        """True if the other bed has both head and feet at 0%."""
+        domain_data = self.hass.data.get(DOMAIN) or {}
+        other_client = domain_data.get(self._other_entry_id)
+        if other_client is None:
+            return True
+        return (
+            other_client.get_head_position() == 0
+            and other_client.get_feet_position() == 0
+        )
+
     @property
     def available(self) -> bool:
-        """Unavailable during calibration."""
-        return not self._client.is_calibration_active()
+        """Unavailable during calibration or when the other bed is at 0% head and feet."""
+        if self._client.is_calibration_active():
+            return False
+        if self._source_at_zero():
+            return False
+        return True
 
     async def async_press(self) -> None:
         """Copy the other bed's head/feet position to this bed."""
@@ -321,15 +349,43 @@ class OctoBedSyncToBedButton(ButtonEntity):
         self._source_title = source_title
         client.register_calibration_state_callback(self._on_calibration_state_changed)
 
+    async def async_added_to_hass(self) -> None:
+        """Register for source bed position updates so availability stays in sync."""
+        await super().async_added_to_hass()
+        domain_data = self.hass.data.get(DOMAIN) or {}
+        source_client = domain_data.get(self._source_entry_id)
+        if source_client is not None:
+            source_client.register_position_callback(self._on_source_position_changed)
+
+    @callback
+    def _on_source_position_changed(self, part: str, position: int) -> None:
+        """Update availability when the source bed's position changes."""
+        self.async_write_ha_state()
+
     @callback
     def _on_calibration_state_changed(self) -> None:
         """Update availability when calibration state changes."""
         self.async_write_ha_state()
 
+    def _source_at_zero(self) -> bool:
+        """True if the source bed has both head and feet at 0%."""
+        domain_data = self.hass.data.get(DOMAIN) or {}
+        source_client = domain_data.get(self._source_entry_id)
+        if source_client is None:
+            return True
+        return (
+            source_client.get_head_position() == 0
+            and source_client.get_feet_position() == 0
+        )
+
     @property
     def available(self) -> bool:
-        """Unavailable during calibration."""
-        return not self._client.is_calibration_active()
+        """Unavailable during calibration or when the source bed is at 0% head and feet."""
+        if self._client.is_calibration_active():
+            return False
+        if self._source_at_zero():
+            return False
+        return True
 
     async def async_press(self) -> None:
         """Set both beds to the source bed's head/feet position."""
