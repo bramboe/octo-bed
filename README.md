@@ -54,16 +54,6 @@ After setup, you'll get:
 
 The time for full travel (0% to 100%) defaults to 30 seconds. To change it: go to **Settings** → **Devices & Services** → **Octo Bed** → **Configure** and set "Full travel time (seconds)".
 
-### HomeKit (one cover per bed)
-
-Home Assistant’s HomeKit bridge exposes each entity as a **separate** accessory, so three cover entities become three tiles. To get **one** cover per bed in HomeKit:
-
-1. Go to **Settings** → **Devices & Services** → **Octo Bed** → your device → **Configure**.
-2. Turn **off** “Expose head and feet as separate covers”.
-3. Reload the Octo Bed integration (or restart Home Assistant).
-
-You will then have a single “Both” cover per bed in HA and in HomeKit. Head and feet are still controllable via the **Head Up/Down** and **Feet Up/Down** switches. To get separate Head/Feet cover sliders again, turn the option back on.
-
 ## Troubleshooting
 
 - **Connection fails**: Ensure the bed is powered on and in range. With a Bluetooth proxy, try pressing a button on the remote to wake the bed.
