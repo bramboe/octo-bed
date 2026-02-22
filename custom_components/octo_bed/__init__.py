@@ -114,13 +114,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         other = hass.config_entries.async_get_entry(pair_with)
         if other and not other.data.get(CONF_IS_GROUP):
             other_entry = hass.config_entries.async_get_entry(pair_with)
-            group_options = other_entry.options if other_entry else {}
+            group_options = dict(other_entry.options or {}) if other_entry else {}
             if not group_options:
                 group_options = {
                     CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
                     CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
                     CONF_SHOW_CALIBRATION_BUTTONS: False,
                 }
+            # Unify calibration: set this bed's head/feet travel to match the other (group) so both are equal
+            head = group_options.get(CONF_HEAD_FULL_TRAVEL_SECONDS, group_options.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
+            feet = group_options.get(CONF_FEET_FULL_TRAVEL_SECONDS, group_options.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
+            group_options[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
+            group_options[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
+            current_opts = dict(entry.options or {})
+            current_opts[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
+            current_opts[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
+            if CONF_SHOW_CALIBRATION_BUTTONS in group_options:
+                current_opts[CONF_SHOW_CALIBRATION_BUTTONS] = group_options[CONF_SHOW_CALIBRATION_BUTTONS]
+            hass.config_entries.async_update_entry(entry, options=current_opts)
             group_data = {
                 CONF_IS_GROUP: True,
                 CONF_MEMBER_ENTRY_IDS: member_ids,
