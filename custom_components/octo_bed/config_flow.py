@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from types import MappingProxyType
 from typing import Any
 
 import voluptuous as vol
@@ -10,6 +11,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
+from homeassistant.config_entries import ConfigEntry, SOURCE_IMPORT
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 
@@ -88,22 +90,123 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle the user step: choose discovered bed or manual entry."""
+        """Handle the user step: choose how to add or set up an Octo bed."""
         if user_input is not None:
-            if user_input.get("method") == "manual":
+            method = user_input.get("method")
+            if method == "manual":
                 return await self.async_step_manual_address()
+            if method == "pair":
+                return await self.async_step_pair_existing()
             return await self.async_step_pick_bed()
+
+        # Build method list: always Discover beds, Enter address; add Pair when 2+ beds exist
+        non_group = [
+            e for e in self.hass.config_entries.async_entries(DOMAIN)
+            if not (e.data or {}).get(CONF_IS_GROUP)
+        ]
+        method_options = [
+            ("discovered", "Choose from discovered beds"),
+            ("manual", "Enter Bluetooth address manually"),
+        ]
+        if len(non_group) >= 2:
+            method_options.append(("pair", "Pair two existing beds"))
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Required("method", default="discovered"): vol.In([
-                        ("discovered", "Select from discovered beds"),
-                        ("manual", "Enter Bluetooth address manually"),
-                    ]),
+                    vol.Required("method", default="discovered"): vol.In(
+                        method_options
+                    ),
                 }
             ),
+        )
+
+    async def async_step_pair_existing(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Create a 'Both beds' device from two existing beds."""
+        non_group = [
+            e for e in self.hass.config_entries.async_entries(DOMAIN)
+            if not (e.data or {}).get(CONF_IS_GROUP)
+        ]
+        if len(non_group) < 2:
+            return self.async_abort(reason="need_two_beds")
+
+        if user_input is not None:
+            eid1 = user_input.get("bed_1")
+            eid2 = user_input.get("bed_2")
+            if not eid1 or not eid2 or eid1 == eid2:
+                return self.async_show_form(
+                    step_id="pair_existing",
+                    data_schema=self._pair_existing_schema(non_group),
+                    errors={"base": "select_two_different"},
+                )
+            entry1 = self.hass.config_entries.async_get_entry(eid1)
+            entry2 = self.hass.config_entries.async_get_entry(eid2)
+            if not entry1 or not entry2:
+                return self.async_abort(reason="entry_not_found")
+            member_ids = [eid1, eid2]
+            member_set = set(member_ids)
+            for e in self.hass.config_entries.async_entries(DOMAIN):
+                if not e.data.get(CONF_IS_GROUP):
+                    continue
+                existing = set(e.data.get(CONF_MEMBER_ENTRY_IDS) or [])
+                if existing == member_set:
+                    return self.async_abort(reason="already_paired")
+            group_options = dict(entry1.options or {})
+            if not group_options:
+                group_options = {
+                    CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
+                    CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
+                    CONF_SHOW_CALIBRATION_BUTTONS: False,
+                }
+            group_data = {
+                CONF_IS_GROUP: True,
+                CONF_MEMBER_ENTRY_IDS: member_ids,
+            }
+            unique_id = f"group_{eid1}_{eid2}"
+            try:
+                group_entry = ConfigEntry(
+                    version=1,
+                    minor_version=0,
+                    domain=DOMAIN,
+                    title="Both beds",
+                    data=group_data,
+                    options=group_options,
+                    source=SOURCE_IMPORT,
+                    unique_id=unique_id,
+                    discovery_keys=MappingProxyType({}),
+                    subentries_data=None,
+                )
+            except TypeError:
+                group_entry = ConfigEntry(
+                    version=1,
+                    domain=DOMAIN,
+                    title="Both beds",
+                    data=group_data,
+                    options=group_options,
+                    source=SOURCE_IMPORT,
+                    unique_id=unique_id,
+                )
+            await self.hass.config_entries.async_add(group_entry)
+            return self.async_abort(reason="pair_created")
+
+        return self.async_show_form(
+            step_id="pair_existing",
+            data_schema=self._pair_existing_schema(non_group),
+        )
+
+    def _pair_existing_schema(
+        self, non_group: list[ConfigEntry]
+    ) -> vol.Schema:
+        """Build schema for selecting two beds to pair."""
+        choices = [(e.entry_id, e.title or f"Octo Bed ({(e.data or {}).get('address', '')})") for e in non_group]
+        return vol.Schema(
+            {
+                vol.Required("bed_1"): vol.In(dict(choices)),
+                vol.Required("bed_2"): vol.In(dict(choices)),
+            }
         )
 
     async def async_step_manual_address(
