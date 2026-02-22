@@ -283,16 +283,17 @@ class OctoBedSyncToOtherButton(ButtonEntity):
         client.register_calibration_state_callback(self._on_calibration_state_changed)
 
     async def async_added_to_hass(self) -> None:
-        """Register for source bed position updates so availability stays in sync."""
+        """Register for position updates on both beds so availability stays in sync."""
         await super().async_added_to_hass()
         domain_data = self.hass.data.get(DOMAIN) or {}
         other_client = domain_data.get(self._other_entry_id)
         if other_client is not None:
             other_client.register_position_callback(self._on_source_position_changed)
+        self._client.register_position_callback(self._on_source_position_changed)
 
     @callback
     def _on_source_position_changed(self, part: str, position: int) -> None:
-        """Update availability when the other bed's position changes."""
+        """Update availability when either bed's position changes."""
         self.async_write_ha_state()
 
     @callback
@@ -309,6 +310,17 @@ class OctoBedSyncToOtherButton(ButtonEntity):
         return (
             other_client.get_head_position() == 0
             and other_client.get_feet_position() == 0
+        )
+
+    def _positions_already_match(self) -> bool:
+        """True if this bed and the other bed have the same head and feet position."""
+        domain_data = self.hass.data.get(DOMAIN) or {}
+        other_client = domain_data.get(self._other_entry_id)
+        if other_client is None:
+            return True
+        return (
+            self._client.get_head_position() == other_client.get_head_position()
+            and self._client.get_feet_position() == other_client.get_feet_position()
         )
 
     def _calibration_differs_from_other(self) -> str | None:
@@ -334,21 +346,25 @@ class OctoBedSyncToOtherButton(ButtonEntity):
 
     @property
     def available(self) -> bool:
-        """Unavailable during calibration, when the other bed is at 0%, or when calibration differs (2 beds only)."""
+        """Unavailable during calibration, when the other bed is at 0%, when calibration differs (2 beds only), or when positions already match."""
         if self._client.is_calibration_active():
             return False
         if self._source_at_zero():
             return False
         if self._calibration_differs_from_other():
             return False
+        if self._positions_already_match():
+            return False
         return True
 
     @property
     def extra_state_attributes(self) -> dict[str, str | None]:
-        """Expose unavailable reason when calibration differs."""
+        """Expose unavailable reason when calibration differs or positions already match."""
         reason = self._calibration_differs_from_other()
         if reason:
             return {"unavailable_reason": reason}
+        if self._positions_already_match():
+            return {"unavailable_reason": "Beds are already at the same position"}
         return {}
 
     async def async_press(self) -> None:
@@ -394,16 +410,18 @@ class OctoBedSyncToBedButton(ButtonEntity):
         client.register_calibration_state_callback(self._on_calibration_state_changed)
 
     async def async_added_to_hass(self) -> None:
-        """Register for source bed position updates so availability stays in sync."""
+        """Register for position updates on both member beds so availability stays in sync."""
         await super().async_added_to_hass()
         domain_data = self.hass.data.get(DOMAIN) or {}
-        source_client = domain_data.get(self._source_entry_id)
-        if source_client is not None:
-            source_client.register_position_callback(self._on_source_position_changed)
+        member_ids = self._entry.data.get(CONF_MEMBER_ENTRY_IDS) or []
+        for eid in member_ids:
+            client = domain_data.get(eid)
+            if client is not None:
+                client.register_position_callback(self._on_source_position_changed)
 
     @callback
     def _on_source_position_changed(self, part: str, position: int) -> None:
-        """Update availability when the source bed's position changes."""
+        """Update availability when either bed's position changes."""
         self.async_write_ha_state()
 
     @callback
@@ -422,14 +440,39 @@ class OctoBedSyncToBedButton(ButtonEntity):
             and source_client.get_feet_position() == 0
         )
 
+    def _both_beds_already_at_source_position(self) -> bool:
+        """True if both beds are already at the source bed's position (no sync needed)."""
+        domain_data = self.hass.data.get(DOMAIN) or {}
+        source_client = domain_data.get(self._source_entry_id)
+        if source_client is None:
+            return True
+        member_ids = self._entry.data.get(CONF_MEMBER_ENTRY_IDS) or []
+        sh, sf = source_client.get_head_position(), source_client.get_feet_position()
+        for eid in member_ids:
+            client = domain_data.get(eid)
+            if client is None:
+                return False
+            if client.get_head_position() != sh or client.get_feet_position() != sf:
+                return False
+        return True
+
     @property
     def available(self) -> bool:
-        """Unavailable during calibration or when the source bed is at 0% head and feet."""
+        """Unavailable during calibration, when the source bed is at 0%, or when both beds already match source position."""
         if self._client.is_calibration_active():
             return False
         if self._source_at_zero():
             return False
+        if self._both_beds_already_at_source_position():
+            return False
         return True
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str | None]:
+        """Expose unavailable reason when both beds already at source position."""
+        if self._both_beds_already_at_source_position() and not self._source_at_zero():
+            return {"unavailable_reason": "Beds are already at the same position"}
+        return {}
 
     async def async_press(self) -> None:
         """Set both beds to the source bed's head/feet position."""
