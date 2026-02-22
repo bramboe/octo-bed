@@ -239,6 +239,19 @@ class OctoBedCompleteCalibrationButton(ButtonEntity):
         else:
             options[CONF_FEET_FULL_TRAVEL_SECONDS] = int(round(duration_seconds))
         self.hass.config_entries.async_update_entry(self._entry, options=options)
+        # When paired (group): keep head/feet travel in sync on both member beds
+        if self._entry.data.get(CONF_IS_GROUP):
+            for eid in self._entry.data.get(CONF_MEMBER_ENTRY_IDS) or []:
+                other = self.hass.config_entries.async_get_entry(eid)
+                if other is not None:
+                    merged = dict(other.options or {})
+                    merged[CONF_HEAD_FULL_TRAVEL_SECONDS] = options.get(
+                        CONF_HEAD_FULL_TRAVEL_SECONDS, merged.get(CONF_HEAD_FULL_TRAVEL_SECONDS)
+                    )
+                    merged[CONF_FEET_FULL_TRAVEL_SECONDS] = options.get(
+                        CONF_FEET_FULL_TRAVEL_SECONDS, merged.get(CONF_FEET_FULL_TRAVEL_SECONDS)
+                    )
+                    self.hass.config_entries.async_update_entry(other, options=merged)
         # Move this part down for the same duration (return to 0%)
         await self._client.move_part_down_for_seconds(part, duration_seconds)
 
