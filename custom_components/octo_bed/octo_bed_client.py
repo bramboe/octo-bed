@@ -158,6 +158,8 @@ class OctoBedClient:
             self._start_keepalive()
 
             return True
+        except asyncio.CancelledError:
+            raise  # do not treat task cancellation as connection failure
         except BleakError as err:
             _LOGGER.error("Failed to connect to Octo bed: %s", err)
             return False
