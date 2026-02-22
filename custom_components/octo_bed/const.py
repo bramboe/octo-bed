@@ -18,7 +18,6 @@ CONF_FULL_TRAVEL_SECONDS = "full_travel_seconds"
 CONF_HEAD_FULL_TRAVEL_SECONDS = "head_full_travel_seconds"
 CONF_FEET_FULL_TRAVEL_SECONDS = "feet_full_travel_seconds"
 CONF_SHOW_CALIBRATION_BUTTONS = "show_calibration_buttons"
-CONF_SINGLE_COVER_FOR_HOMEKIT = "single_cover_for_homekit"
 DEFAULT_FULL_TRAVEL_SECONDS = 30
 
 # Commands (hex values to write to Handle 0x0011)
