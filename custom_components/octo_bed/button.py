@@ -280,6 +280,7 @@ class OctoBedSyncToOtherButton(ButtonEntity):
         self._attr_name = f"Sync to {other_title} position"
         self._other_entry_id = other_entry_id
         self._other_title = other_title
+        self._other_position_callback_registered = False
         client.register_calibration_state_callback(self._on_calibration_state_changed)
 
     async def async_added_to_hass(self) -> None:
@@ -289,7 +290,24 @@ class OctoBedSyncToOtherButton(ButtonEntity):
         other_client = domain_data.get(self._other_entry_id)
         if other_client is not None:
             other_client.register_position_callback(self._on_source_position_changed)
+            self._other_position_callback_registered = True
         self._client.register_position_callback(self._on_source_position_changed)
+        # Other bed's client may not be in hass.data yet (setup order); retry so we get updates when it moves
+        if not self._other_position_callback_registered:
+            for delay in (1, 3, 10):
+                self.hass.async_call_later(delay, self._try_register_other_client)
+
+    @callback
+    def _try_register_other_client(self, _dt=None) -> None:
+        """Register for the other bed's position updates when its client becomes available."""
+        if self._other_position_callback_registered:
+            return
+        domain_data = self.hass.data.get(DOMAIN) or {}
+        other_client = domain_data.get(self._other_entry_id)
+        if other_client is not None:
+            other_client.register_position_callback(self._on_source_position_changed)
+            self._other_position_callback_registered = True
+            self.async_write_ha_state()
 
     @callback
     def _on_source_position_changed(self, part: str, position: int) -> None:
