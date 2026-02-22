@@ -21,7 +21,6 @@ from .const import (
     DOMAIN,
     CMD_STOP,
 )
-from .group_client import GroupOctoBedClient
 from .octo_bed_client import OctoBedClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -51,22 +50,22 @@ async def async_setup_entry(
 
     entities: list[SwitchEntity] = [
         OctoBedMovementSwitch(
-            client, entry, "both_up", "Both Up", "mdi:arrow-up-bold", device_info, both_travel, uid
+            client, "both_up", "Both Up", "mdi:arrow-up-bold", device_info, both_travel, uid
         ),
         OctoBedMovementSwitch(
-            client, entry, "both_down", "Both Down", "mdi:arrow-down-bold", device_info, both_travel, uid
+            client, "both_down", "Both Down", "mdi:arrow-down-bold", device_info, both_travel, uid
         ),
         OctoBedMovementSwitch(
-            client, entry, "head_up", "Head Up", "mdi:arrow-up", device_info, head_travel, uid
+            client, "head_up", "Head Up", "mdi:arrow-up", device_info, head_travel, uid
         ),
         OctoBedMovementSwitch(
-            client, entry, "head_down", "Head Down", "mdi:arrow-down", device_info, head_travel, uid
+            client, "head_down", "Head Down", "mdi:arrow-down", device_info, head_travel, uid
         ),
         OctoBedMovementSwitch(
-            client, entry, "feet_up", "Feet Up", "mdi:arrow-up", device_info, feet_travel, uid
+            client, "feet_up", "Feet Up", "mdi:arrow-up", device_info, feet_travel, uid
         ),
         OctoBedMovementSwitch(
-            client, entry, "feet_down", "Feet Down", "mdi:arrow-down", device_info, feet_travel, uid
+            client, "feet_down", "Feet Down", "mdi:arrow-down", device_info, feet_travel, uid
         ),
         OctoBedLightSwitch(client, device_info, uid),
     ]
@@ -125,7 +124,6 @@ class OctoBedMovementSwitch(SwitchEntity):
     def __init__(
         self,
         client: OctoBedClient,
-        entry: ConfigEntry,
         action: str,
         name: str,
         icon: str,
@@ -135,7 +133,6 @@ class OctoBedMovementSwitch(SwitchEntity):
     ) -> None:
         """Initialize the movement switch."""
         self._client = client
-        self._entry = entry
         self._action = action
         self._attr_name = name
         self._attr_icon = icon
@@ -195,34 +192,7 @@ class OctoBedMovementSwitch(SwitchEntity):
         self.async_write_ha_state()
 
     async def _movement_loop(self) -> None:
-        """Continuously send movement commands until switched off or full travel reached."""
-        # Group (both beds): move each bed to target (100 or 0) so they end up in sync
-        if isinstance(self._client, GroupOctoBedClient):
-            try:
-                going_up = "up" in self._action
-                target = 100 if going_up else 0
-                opts = self._entry.options or {}
-                default = opts.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
-                head_travel = float(opts.get(CONF_HEAD_FULL_TRAVEL_SECONDS, default))
-                feet_travel = float(opts.get(CONF_FEET_FULL_TRAVEL_SECONDS, default))
-                if "both" in self._action:
-                    await self._client.run_to_position(target, target, head_travel, feet_travel)
-                elif "head" in self._action:
-                    await self._client.run_to_position(
-                        target, self._client.get_feet_position(), head_travel, feet_travel
-                    )
-                elif "feet" in self._action:
-                    await self._client.run_to_position(
-                        self._client.get_head_position(), target, head_travel, feet_travel
-                    )
-            except asyncio.CancelledError:
-                pass
-            finally:
-                self._is_on = False
-                self._task = None
-                self.async_write_ha_state()
-            return
-
+        """Continuously send movement commands until switched off or full travel reached. Same for single bed and both-bed (group sends same command to both)."""
         method = getattr(self._client, self._action, None)
         if not method or not callable(method):
             _LOGGER.error("Unknown movement action %s", self._action)
