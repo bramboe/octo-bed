@@ -44,6 +44,30 @@ class GroupOctoBedClient:
             return 0
         return int(round(sum(c.get_feet_position() for c in self._clients) / len(self._clients)))
 
+    def get_min_head_position(self) -> int:
+        """Minimum head position across beds (for duration so lagging bed reaches target)."""
+        if not self._clients:
+            return 0
+        return min(c.get_head_position() for c in self._clients)
+
+    def get_max_head_position(self) -> int:
+        """Maximum head position across beds (for duration when moving down)."""
+        if not self._clients:
+            return 0
+        return max(c.get_head_position() for c in self._clients)
+
+    def get_min_feet_position(self) -> int:
+        """Minimum feet position across beds (for duration so lagging bed reaches target)."""
+        if not self._clients:
+            return 0
+        return min(c.get_feet_position() for c in self._clients)
+
+    def get_max_feet_position(self) -> int:
+        """Maximum feet position across beds (for duration when moving down)."""
+        if not self._clients:
+            return 0
+        return max(c.get_feet_position() for c in self._clients)
+
     def get_both_position(self) -> int:
         if not self._clients:
             return 0
