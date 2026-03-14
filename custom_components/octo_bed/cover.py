@@ -167,8 +167,30 @@ class OctoBedCover(CoverEntity):
         feet = self._entry.options.get(CONF_FEET_FULL_TRAVEL_SECONDS, default)
         return max(head, feet)
 
+    def _get_head_full_travel_seconds(self) -> int:
+        """Full travel seconds for head only."""
+        default = self._entry.options.get(
+            CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
+        )
+        return self._entry.options.get(CONF_HEAD_FULL_TRAVEL_SECONDS, default)
+
+    def _get_feet_full_travel_seconds(self) -> int:
+        """Full travel seconds for feet only."""
+        default = self._entry.options.get(
+            CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
+        )
+        return self._entry.options.get(CONF_FEET_FULL_TRAVEL_SECONDS, default)
+
+    def _duration_position_for_target(self, target: int, up: bool) -> int:
+        """For a group: position to use for duration so the lagging bed reaches target. When going up use min, when going down use max. Returns -1 for single bed or 'both' (handled separately)."""
+        if self._cover_type == "head" and hasattr(self._client, "get_min_head_position"):
+            return self._client.get_min_head_position() if up else self._client.get_max_head_position()
+        if self._cover_type == "feet" and hasattr(self._client, "get_min_feet_position"):
+            return self._client.get_min_feet_position() if up else self._client.get_max_feet_position()
+        return -1  # single bed or "both" (handled below)
+
     async def _async_move_to_position(self, target: int) -> None:
-        """Move cover to target position (0-100). Same logic for single bed and both-bed (group sends same command to both)."""
+        """Move cover to target position (0-100). For a group, run until the lagging bed reaches target so both beds reach the target."""
         # Get current position from shared state
         if self._cover_type == "head":
             current = self._client.get_head_position()
@@ -185,14 +207,34 @@ class OctoBedCover(CoverEntity):
             return
 
         full_travel = self._get_full_travel_seconds()
-        duration: float
-        up: bool
-        if target > current:
-            up = True
-            duration = (target - current) / 100.0 * full_travel
+        up = target > current
+        # For a group: base duration on the bed that is furthest from target (lagging), so both beds reach target
+        duration_pos = self._duration_position_for_target(target, up)
+        if duration_pos >= 0:
+            # Group: duration so lagging bed reaches target
+            if up:
+                duration = (target - duration_pos) / 100.0 * full_travel
+            else:
+                duration = (duration_pos - target) / 100.0 * full_travel
+        elif self._cover_type == "both" and hasattr(self._client, "get_min_feet_position"):
+            # Group "both": run until both head and feet on the lagging bed reach target
+            head_min, head_max = self._client.get_min_head_position(), self._client.get_max_head_position()
+            feet_min, feet_max = self._client.get_min_feet_position(), self._client.get_max_feet_position()
+            head_ft = self._get_head_full_travel_seconds()
+            feet_ft = self._get_feet_full_travel_seconds()
+            if up:
+                head_dur = (target - head_min) / 100.0 * head_ft
+                feet_dur = (target - feet_min) / 100.0 * feet_ft
+            else:
+                head_dur = (head_max - target) / 100.0 * head_ft
+                feet_dur = (feet_max - target) / 100.0 * feet_ft
+            duration = max(head_dur, feet_dur)
         else:
-            up = False
-            duration = (current - target) / 100.0 * full_travel
+            # Single bed
+            if up:
+                duration = (target - current) / 100.0 * full_travel
+            else:
+                duration = (current - target) / 100.0 * full_travel
 
         cmd = self._get_up_command() if up else self._get_down_command()
         method = getattr(self._client, cmd, None)
