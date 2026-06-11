@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover - older cores
     from homeassistant.data_entry_flow import FlowResult as ConfigFlowResult
 
 from .const import (
+    CONF_DEVICE_ADDRESS,
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_FULL_TRAVEL_SECONDS,
     CONF_GROUP_OPTIONS,
@@ -41,6 +42,20 @@ from .octo_bed_client import OctoBedClient
 _LOGGER = logging.getLogger(__name__)
 
 OCTO_BED_NAMES = ("Octo", "OCTO", "octo", "RC2")
+
+# Sentinel for "do not pair" in the pair_choice step. An empty string cannot
+# be used: the frontend treats it as an unfilled required field.
+NO_PAIR = "none"
+
+
+def _bed_label(entry: ConfigEntry) -> str:
+    """Human-readable label for a bed entry (title, with address if not already in it)."""
+    title = entry.title or "Octo Bed"
+    data = entry.data or {}
+    address = data.get("address") or data.get(CONF_DEVICE_ADDRESS) or ""
+    if address and address not in title:
+        return f"{title} ({address})"
+    return title
 
 
 def format_address(address: str) -> str:
@@ -240,7 +255,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, non_group: list[ConfigEntry]
     ) -> vol.Schema:
         """Build schema for selecting two beds to pair."""
-        choices = [(e.entry_id, e.title or f"Octo Bed ({(e.data or {}).get('address', '')})") for e in non_group]
+        choices = [(e.entry_id, _bed_label(e)) for e in non_group]
         return vol.Schema(
             {
                 vol.Required("bed_1"): vol.In(dict(choices)),
@@ -436,7 +451,8 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Ask whether to pair this bed with another as one combined device."""
         if user_input is not None:
-            self._pair_with_entry_id = (user_input.get("pair") or "").strip() or None
+            pair = (user_input.get("pair") or NO_PAIR).strip()
+            self._pair_with_entry_id = None if pair in ("", NO_PAIR) else pair
             return self._create_bed_entry()
 
         other_beds = self._other_beds
@@ -448,13 +464,13 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if not other_beds:
             return self._create_bed_entry()
 
-        pair_options = [(e.entry_id, f"{e.title} ({(e.data or {}).get('address', '')})") for e in other_beds]
-        pair_options.insert(0, ("", "No, keep as separate devices"))
+        pair_options = [(e.entry_id, _bed_label(e)) for e in other_beds]
+        pair_options.insert(0, (NO_PAIR, "No, keep as separate devices"))
         return self.async_show_form(
             step_id="pair_choice",
             data_schema=vol.Schema(
                 {
-                    vol.Required("pair", default=""): vol.In(dict(pair_options)),
+                    vol.Required("pair", default=NO_PAIR): vol.In(dict(pair_options)),
                 }
             ),
             description_placeholders={
