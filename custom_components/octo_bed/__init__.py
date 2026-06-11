@@ -18,6 +18,7 @@ from .const import (
     CONF_HEAD_FULL_TRAVEL_SECONDS,
     CONF_IS_GROUP,
     CONF_MEMBER_ENTRY_IDS,
+    CONF_PAIR_CALIBRATE,
     CONF_PAIR_WITH_ENTRY_ID,
     CONF_SHOW_CALIBRATION_BUTTONS,
     DEFAULT_FULL_TRAVEL_SECONDS,
@@ -123,7 +124,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     pair_with = entry.data.get(CONF_PAIR_WITH_ENTRY_ID)
     if pair_with:
         _async_start_group_flow(hass, entry, pair_with)
-        new_data = {k: v for k, v in entry.data.items() if k != CONF_PAIR_WITH_ENTRY_ID}
+        new_data = {
+            k: v
+            for k, v in entry.data.items()
+            if k not in (CONF_PAIR_WITH_ENTRY_ID, CONF_PAIR_CALIBRATE)
+        }
         hass.config_entries.async_update_entry(entry, data=new_data)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -139,12 +144,14 @@ def _async_start_group_flow(
     if not other or other.data.get(CONF_IS_GROUP):
         return
 
+    # User choice from the pairing flow: calibrate both beds via the group device
+    calibrate_both = bool(entry.data.get(CONF_PAIR_CALIBRATE, True))
+
     group_options = dict(other.options or {})
     if not group_options:
         group_options = {
             CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
             CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
-            CONF_SHOW_CALIBRATION_BUTTONS: False,
         }
     # Unify calibration: both beds get the same head/feet travel as the group
     head = group_options.get(
@@ -157,12 +164,17 @@ def _async_start_group_flow(
     )
     group_options[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
     group_options[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
+    group_options[CONF_SHOW_CALIBRATION_BUTTONS] = calibrate_both
     current_opts = dict(entry.options or {})
     current_opts[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
     current_opts[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
-    if CONF_SHOW_CALIBRATION_BUTTONS in group_options:
-        current_opts[CONF_SHOW_CALIBRATION_BUTTONS] = group_options[CONF_SHOW_CALIBRATION_BUTTONS]
+    current_opts[CONF_SHOW_CALIBRATION_BUTTONS] = calibrate_both
     hass.config_entries.async_update_entry(entry, options=current_opts)
+    other_opts = dict(other.options or {})
+    other_opts[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
+    other_opts[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
+    other_opts[CONF_SHOW_CALIBRATION_BUTTONS] = calibrate_both
+    hass.config_entries.async_update_entry(other, options=other_opts)
 
     hass.async_create_task(
         hass.config_entries.flow.async_init(

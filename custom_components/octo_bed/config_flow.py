@@ -31,6 +31,7 @@ from .const import (
     CONF_HEAD_FULL_TRAVEL_SECONDS,
     CONF_IS_GROUP,
     CONF_MEMBER_ENTRY_IDS,
+    CONF_PAIR_CALIBRATE,
     CONF_PAIR_WITH_ENTRY_ID,
     CONF_SHOW_CALIBRATION_BUTTONS,
     DEFAULT_FULL_TRAVEL_SECONDS,
@@ -109,6 +110,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._pin: str | None = None
         self._device_name: str = ""
         self._other_beds: list[ConfigEntry] | None = None
+        self._pair_calibrate: bool = True
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
@@ -193,11 +195,17 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if len(non_group) < 2:
             return self.async_abort(reason="need_two_beds")
 
+        if user_input is None:
+            return self.async_show_form(
+                step_id="pair_existing",
+                data_schema=self._pair_existing_schema(non_group),
+            )
+
         # Exactly 2 beds: use them directly, no need to ask which two
         if len(non_group) == 2:
             entry1, entry2 = non_group[0], non_group[1]
             eid1, eid2 = entry1.entry_id, entry2.entry_id
-        elif user_input is not None:
+        else:
             eid1 = user_input.get("bed_1")
             eid2 = user_input.get("bed_2")
             if not eid1 or not eid2 or eid1 == eid2:
@@ -210,11 +218,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             entry2 = self.hass.config_entries.async_get_entry(eid2)
             if not entry1 or not entry2:
                 return self.async_abort(reason="entry_not_found")
-        else:
-            return self.async_show_form(
-                step_id="pair_existing",
-                data_schema=self._pair_existing_schema(non_group),
-            )
+        calibrate_both = bool(user_input.get("calibrate_both", True))
 
         member_ids = [eid1, eid2]
         member_set = set(member_ids)
@@ -230,7 +234,6 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             group_options = {
                 CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
                 CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
-                CONF_SHOW_CALIBRATION_BUTTONS: False,
             }
         # Unify calibration: ensure both beds have the same head/feet travel as the group
         head = group_options.get(
@@ -243,12 +246,13 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
         group_options[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
         group_options[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
+        # User choice: calibrate both beds together via the combined device
+        group_options[CONF_SHOW_CALIBRATION_BUTTONS] = calibrate_both
         for member_entry in (entry1, entry2):
             merged = dict(member_entry.options or {})
             merged[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
             merged[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
-            if CONF_SHOW_CALIBRATION_BUTTONS in group_options:
-                merged[CONF_SHOW_CALIBRATION_BUTTONS] = group_options[CONF_SHOW_CALIBRATION_BUTTONS]
+            merged[CONF_SHOW_CALIBRATION_BUTTONS] = calibrate_both
             self.hass.config_entries.async_update_entry(member_entry, options=merged)
 
         await self.async_set_unique_id(f"group_{'_'.join(sorted(member_ids))}")
@@ -262,14 +266,14 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _pair_existing_schema(
         self, non_group: list[ConfigEntry]
     ) -> vol.Schema:
-        """Build schema for selecting two beds to pair."""
-        choices = [(e.entry_id, _bed_label(e)) for e in non_group]
-        return vol.Schema(
-            {
-                vol.Required("bed_1"): vol.In(dict(choices)),
-                vol.Required("bed_2"): vol.In(dict(choices)),
-            }
-        )
+        """Build schema: bed pickers (only when more than 2 beds) + calibrate toggle."""
+        schema: dict[Any, Any] = {}
+        if len(non_group) > 2:
+            choices = [(e.entry_id, _bed_label(e)) for e in non_group]
+            schema[vol.Required("bed_1")] = vol.In(dict(choices))
+            schema[vol.Required("bed_2")] = vol.In(dict(choices))
+        schema[vol.Required("calibrate_both", default=True)] = bool
+        return vol.Schema(schema)
 
     async def async_step_manual_address(
         self, user_input: dict[str, Any] | None = None
@@ -439,12 +443,28 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_calibrate_choice(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask whether both beds should be calibrated together via the combined device."""
+        if user_input is not None:
+            self._pair_calibrate = bool(user_input.get("calibrate_both", True))
+            return self._create_bed_entry()
+
+        return self.async_show_form(
+            step_id="calibrate_choice",
+            data_schema=vol.Schema(
+                {vol.Required("calibrate_both", default=True): bool}
+            ),
+        )
+
     def _create_bed_entry(self) -> ConfigFlowResult:
         """Create the config entry for the bed (and optionally group)."""
         title = f"Octo Bed ({self._address})" if not self._device_name else self._device_name
         data = {"address": self._address, "pin": self._pin}
         if self._pair_with_entry_id:
             data[CONF_PAIR_WITH_ENTRY_ID] = self._pair_with_entry_id
+            data[CONF_PAIR_CALIBRATE] = getattr(self, "_pair_calibrate", True)
         return self.async_create_entry(
             title=title,
             data=data,
@@ -461,6 +481,8 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             pair = (user_input.get("pair") or NO_PAIR).strip()
             self._pair_with_entry_id = None if pair in ("", NO_PAIR) else pair
+            if self._pair_with_entry_id:
+                return await self.async_step_calibrate_choice()
             return self._create_bed_entry()
 
         other_beds = self._other_beds

@@ -72,6 +72,10 @@ The time for full travel (0% to 100%) defaults to 30 seconds per motor. Use the 
 
 The calibration status sensor shows the current phase (moving to start / measuring / returning) and the elapsed measuring time.
 
+#### Calibrating two paired beds together
+
+When you pair two beds, the flow asks whether you want to calibrate both beds together. If enabled, the combined "Both beds" device gets the calibration buttons: one session moves **both beds simultaneously** (down to 0%, then up while measuring) and stores the same travel times for both, keeping them in sync. The per-bed calibration buttons are disabled while paired. You can toggle this later via the options of the combined device.
+
 ## Breaking changes in 2.0.0
 
 - The under-bed light is now a **light** entity instead of a switch. Update automations that used `switch.<bed>_light` to `light.<bed>_light`.

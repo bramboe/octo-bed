@@ -30,7 +30,15 @@
         "description": "Select the two beds to combine into one \"Both beds\" device. Each bed stays as its own device; the paired device adds shared controls.",
         "data": {
           "bed_1": "First bed",
-          "bed_2": "Second bed"
+          "bed_2": "Second bed",
+          "calibrate_both": "Enable calibration of both beds on the combined device"
+        }
+      },
+      "calibrate_choice": {
+        "title": "Calibrate both beds?",
+        "description": "One calibration session on the combined \"Both beds\" device moves both beds together: first fully down to 0%, then up while measuring. The measured travel times are stored for both beds, so they stay in sync. You can change this later in the options of the combined device.",
+        "data": {
+          "calibrate_both": "Enable calibration of both beds on the combined device"
         }
       }
     },
