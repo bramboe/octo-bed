@@ -12,8 +12,11 @@ from homeassistant.components.cover import (
     CoverEntity,
     CoverEntityFeature,
 )
+import voluptuous as vol
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -53,6 +56,17 @@ async def async_setup_entry(
     ]
 
     async_add_entities(covers)
+
+    # octo_bed.move_to_position: set head and feet in one call (any bed cover works)
+    platform = entity_platform.async_get_current_platform()
+    platform.async_register_entity_service(
+        "move_to_position",
+        {
+            vol.Optional("head"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+            vol.Optional("feet"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+        },
+        "async_move_to_position_service",
+    )
 
 
 class OctoBedCover(CoverEntity, RestoreEntity):
@@ -337,6 +351,29 @@ class OctoBedCover(CoverEntity, RestoreEntity):
             self._current_command = None
             self._attr_is_closed = final_pos == 0
             self.async_write_ha_state()
+
+    async def async_move_to_position_service(
+        self, head: int | None = None, feet: int | None = None
+    ) -> None:
+        """Move head and feet to the given positions in one call (entity service)."""
+        if head is None and feet is None:
+            return
+        head = self._client.get_head_position() if head is None else head
+        feet = self._client.get_feet_position() if feet is None else feet
+        task = asyncio.create_task(
+            self._client.run_to_position(
+                head,
+                feet,
+                self._get_head_full_travel_seconds(),
+                self._get_feet_full_travel_seconds(),
+            )
+        )
+        self._client.register_movement_task(task)
+        self._client.register_active_movement("both", task)
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
     async def async_open_cover(self, **kwargs: Any) -> None:
         """Open the cover (move to 100%)."""

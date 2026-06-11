@@ -7,7 +7,7 @@ Control your Octo adjustable bed (Octo Actuators control box, e.g. with the Star
 - **Bed controls**: Head up/down, feet up/down, both up/down, stop
 - **Position covers**: Head, Feet, Both – set a target position (0–100%) and the bed moves there; positions survive a Home Assistant restart
 - **Light**: Under-bed light (RGBW color control on beds that support it)
-- **Memory presets**: Recall and save the bed's hardware preset positions (when the bed reports support)
+- **Presets**: Recall and save the bed's hardware preset positions (when the bed reports support), or integration-stored software presets (3 slots) on beds without hardware memory
 - **Two beds as one**: Pair two beds into a "Both beds" device with shared controls and position sync
 - **Calibration**: Measure the real full-travel time per motor for accurate positioning
 - **4-digit PIN**: Authentication with automatic keep-alive (the bed drops the connection after ~30 s without it)
@@ -56,10 +56,35 @@ After setup, you'll get:
 - **Covers**: Head, Feet, Both – position-based (0% = down, 100% = up). Set a position and the bed moves until it reaches it, then stops automatically.
 - **Switches**: Head/Feet/Both Up & Down (hold-style movement), Synchro mode (linked drive mode, only on beds that report it; disabled by default)
 - **Light**: Under-bed light (with RGBW color picker when the bed supports it)
-- **Buttons**: Stop, calibration buttons, preset recall/save buttons (when the bed reports memory slots), sync-to-other-bed buttons (with two beds)
+- **Buttons**: Stop, calibration buttons, preset recall/save buttons (hardware slots when the bed reports them, otherwise 3 software slots), sync-to-other-bed buttons (with two beds)
 - **Diagnostic sensors**: Head/feet position, connection status, calibration status, MAC address
 
-> **Note on presets**: after recalling a hardware preset the bed moves on its own; the integration cannot track that movement, so the shown position may drift until the next full up/down move or calibration.
+> **Note on hardware presets**: after recalling a hardware preset the bed moves on its own; the integration cannot track that movement, so the shown position may drift until the next full up/down move or calibration. Software presets (used on beds without hardware memory, like most RC2 boxes) do not have this problem: the integration drives the movement itself.
+
+### Software presets
+
+Beds without hardware memory slots get three integration-stored preset slots. Move the bed to a position you like, press **Save preset 1** (Configuration section), and from then on **Preset 1** moves head and feet back to that position in one press. On the "Both beds" device a preset moves both beds. The stored positions are visible as attributes on the preset button.
+
+### Service: `octo_bed.move_to_position`
+
+Move head and feet in one call from automations or scripts:
+
+```yaml
+action: octo_bed.move_to_position
+target:
+  entity_id: cover.my_bed_head   # any cover of the bed
+data:
+  head: 40
+  feet: 15
+```
+
+Omitted parts keep their current position. The movement is cancellable with the Stop button.
+
+### Blueprint: wake-up
+
+A ready-made wake-up automation (raise the head at a chosen time, optionally turn on the under-bed light, optional weekdays-only):
+
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fbramboe%2Focto-bed%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Focto_bed%2Fwake_up.yaml)
 
 ### Cover configuration
 

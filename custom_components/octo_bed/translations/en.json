@@ -186,5 +186,21 @@
         }
       }
     }
+  },
+  "services": {
+    "move_to_position": {
+      "name": "Move to position",
+      "description": "Moves the bed's head and feet to the given positions in one call. Omitted parts keep their current position.",
+      "fields": {
+        "head": {
+          "name": "Head position",
+          "description": "Target head position (0% = flat, 100% = fully raised)."
+        },
+        "feet": {
+          "name": "Feet position",
+          "description": "Target feet position (0% = flat, 100% = fully raised)."
+        }
+      }
+    }
   }
 }

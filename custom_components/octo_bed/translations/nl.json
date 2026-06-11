@@ -186,5 +186,21 @@
         }
       }
     }
+  },
+  "services": {
+    "move_to_position": {
+      "name": "Naar positie bewegen",
+      "description": "Beweegt het hoofd- en voeteneinde van het bed in één aanroep naar de opgegeven posities. Weggelaten delen behouden hun huidige positie.",
+      "fields": {
+        "head": {
+          "name": "Positie hoofdeinde",
+          "description": "Doelpositie hoofdeinde (0% = vlak, 100% = volledig omhoog)."
+        },
+        "feet": {
+          "name": "Positie voeteneinde",
+          "description": "Doelpositie voeteneinde (0% = vlak, 100% = volledig omhoog)."
+        }
+      }
+    }
   }
 }

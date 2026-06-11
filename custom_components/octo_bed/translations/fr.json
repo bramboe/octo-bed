@@ -186,5 +186,21 @@
         }
       }
     }
+  },
+  "services": {
+    "move_to_position": {
+      "name": "Déplacer vers la position",
+      "description": "Déplace la tête et les pieds du lit vers les positions indiquées en un seul appel. Les parties omises conservent leur position actuelle.",
+      "fields": {
+        "head": {
+          "name": "Position de la tête",
+          "description": "Position cible de la tête (0 % = à plat, 100 % = entièrement relevée)."
+        },
+        "feet": {
+          "name": "Position des pieds",
+          "description": "Position cible des pieds (0 % = à plat, 100 % = entièrement relevés)."
+        }
+      }
+    }
   }
 }

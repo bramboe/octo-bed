@@ -20,7 +20,9 @@ CONF_FULL_TRAVEL_SECONDS = "full_travel_seconds"
 CONF_HEAD_FULL_TRAVEL_SECONDS = "head_full_travel_seconds"
 CONF_FEET_FULL_TRAVEL_SECONDS = "feet_full_travel_seconds"
 CONF_SHOW_CALIBRATION_BUTTONS = "show_calibration_buttons"
+CONF_SOFT_PRESETS = "soft_presets"
 DEFAULT_FULL_TRAVEL_SECONDS = 30
+SOFT_PRESET_SLOTS = 3
 
 # The bed drops the BLE connection after ~30 s without PIN re-authentication,
 # so refresh well within that window.

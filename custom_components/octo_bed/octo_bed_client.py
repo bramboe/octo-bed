@@ -774,9 +774,16 @@ class OctoBedClient:
                         int(round(head_current + (head_target - head_current) * frac))
                     )
                     await asyncio.sleep(interval)
-            finally:
-                await self.send_stop()
-                self.set_head_position(head_target)
+            except asyncio.CancelledError:
+                # Cancellers (stop, conflicting moves) send the stop command;
+                # record how far we actually got instead of snapping to target.
+                frac = min(1.0, (time.monotonic() - start) / duration) if duration > 0 else 1.0
+                self.set_head_position(
+                    int(round(head_current + (head_target - head_current) * frac))
+                )
+                raise
+            await self.send_stop()
+            self.set_head_position(head_target)
 
         # Move feet
         if feet_target != feet_current and feet_travel_seconds > 0:
@@ -793,9 +800,14 @@ class OctoBedClient:
                         int(round(feet_current + (feet_target - feet_current) * frac))
                     )
                     await asyncio.sleep(interval)
-            finally:
-                await self.send_stop()
-                self.set_feet_position(feet_target)
+            except asyncio.CancelledError:
+                frac = min(1.0, (time.monotonic() - start) / duration) if duration > 0 else 1.0
+                self.set_feet_position(
+                    int(round(feet_current + (feet_target - feet_current) * frac))
+                )
+                raise
+            await self.send_stop()
+            self.set_feet_position(feet_target)
 
     def set_head_position(self, position: int) -> None:
         """Set head position (0-100) and notify listeners."""

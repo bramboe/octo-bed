@@ -1,0 +1,74 @@
+blueprint:
+  name: Octo Bed wake-up
+  description: >-
+    Gently wake up: at a chosen time, raise the head of your Octo bed to a
+    comfortable position and optionally turn on the under-bed light.
+  domain: automation
+  source_url: https://github.com/bramboe/octo-bed/blob/main/blueprints/automation/octo_bed/wake_up.yaml
+  input:
+    wake_time:
+      name: Wake-up time
+      description: When the bed should start moving.
+      selector:
+        time: {}
+    head_cover:
+      name: Head cover
+      description: The bed's Head cover entity.
+      selector:
+        entity:
+          filter:
+            - integration: octo_bed
+              domain: cover
+    head_position:
+      name: Head position
+      description: Target head position (0% = flat, 100% = fully raised).
+      default: 40
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+    bed_light:
+      name: Under-bed light (optional)
+      description: Turn this light on at wake-up time. Leave empty to skip.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - integration: octo_bed
+              domain: light
+    weekdays_only:
+      name: Weekdays only
+      description: Only run Monday through Friday.
+      default: false
+      selector:
+        boolean: {}
+
+mode: single
+
+triggers:
+  - trigger: time
+    at: !input wake_time
+
+variables:
+  bed_light: !input bed_light
+  weekdays_only: !input weekdays_only
+
+conditions:
+  - condition: template
+    value_template: >-
+      {{ not weekdays_only or now().isoweekday() <= 5 }}
+
+actions:
+  - action: cover.set_cover_position
+    target:
+      entity_id: !input head_cover
+    data:
+      position: !input head_position
+  - if:
+      - condition: template
+        value_template: "{{ bed_light != '' }}"
+    then:
+      - action: light.turn_on
+        target:
+          entity_id: "{{ bed_light }}"

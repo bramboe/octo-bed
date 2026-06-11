@@ -518,7 +518,9 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             head = int(user_input.get(CONF_HEAD_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
             feet = int(user_input.get(CONF_FEET_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
+            # Merge into existing options so stored presets etc. survive
             new_options = {
+                **dict(self.config_entry.options),
                 CONF_HEAD_FULL_TRAVEL_SECONDS: head,
                 CONF_FEET_FULL_TRAVEL_SECONDS: feet,
                 CONF_SHOW_CALIBRATION_BUTTONS: user_input[CONF_SHOW_CALIBRATION_BUTTONS],

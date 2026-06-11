@@ -186,5 +186,21 @@
         }
       }
     }
+  },
+  "services": {
+    "move_to_position": {
+      "name": "In Position fahren",
+      "description": "Fährt Kopf- und Fußteil des Betts in einem Aufruf in die angegebenen Positionen. Ausgelassene Teile behalten ihre aktuelle Position.",
+      "fields": {
+        "head": {
+          "name": "Position Kopfteil",
+          "description": "Zielposition Kopfteil (0 % = flach, 100 % = ganz oben)."
+        },
+        "feet": {
+          "name": "Position Fußteil",
+          "description": "Zielposition Fußteil (0 % = flach, 100 % = ganz oben)."
+        }
+      }
+    }
   }
 }

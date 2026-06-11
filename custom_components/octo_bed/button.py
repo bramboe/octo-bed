@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from homeassistant.components.button import ButtonEntity
@@ -19,12 +20,39 @@ from .const import (
     CONF_IS_GROUP,
     CONF_MEMBER_ENTRY_IDS,
     CONF_SHOW_CALIBRATION_BUTTONS,
+    CONF_SOFT_PRESETS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
+    SOFT_PRESET_SLOTS,
 )
 from .octo_bed_client import OctoBedClient
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _travel_times(entry: ConfigEntry) -> tuple[int, int]:
+    """Return (head, feet) full travel seconds from entry options."""
+    opts = entry.options or {}
+    default = opts.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
+    return (
+        opts.get(CONF_HEAD_FULL_TRAVEL_SECONDS, default),
+        opts.get(CONF_FEET_FULL_TRAVEL_SECONDS, default),
+    )
+
+
+async def _run_to_position_tracked(
+    client: OctoBedClient, head: int, feet: int, head_travel: int, feet_travel: int
+) -> None:
+    """Run to a position as a registered movement so Stop can cancel it."""
+    task = asyncio.create_task(
+        client.run_to_position(head, feet, head_travel, feet_travel)
+    )
+    client.register_movement_task(task)
+    client.register_active_movement("both", task)
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 
 def _is_entry_in_paired_group(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -63,6 +91,13 @@ async def async_setup_entry(
     for slot in range(client.memory_slot_count):
         buttons.append(OctoBedPresetButton(client, slot, device_info, uid))
         buttons.append(OctoBedSavePresetButton(client, slot, device_info, uid))
+
+    # Software presets: position pairs stored by the integration, for beds
+    # without hardware memory slots
+    if client.memory_slot_count == 0:
+        for slot in range(1, SOFT_PRESET_SLOTS + 1):
+            buttons.append(OctoBedSoftPresetButton(client, entry, slot, device_info, uid))
+            buttons.append(OctoBedSaveSoftPresetButton(client, entry, slot, device_info, uid))
 
     if entry.options.get(CONF_SHOW_CALIBRATION_BUTTONS, True):
         buttons.extend([
@@ -199,6 +234,139 @@ class OctoBedPresetButton(ButtonEntity):
     async def async_press(self) -> None:
         """Recall the preset. The dead-reckoned position may drift afterwards."""
         await self._client.recall_memory_preset(self._slot)
+
+
+class OctoBedSoftPresetButton(ButtonEntity):
+    """Move the bed to a position pair stored by the integration."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bed-clock"
+
+    def __init__(
+        self,
+        client: OctoBedClient,
+        entry: ConfigEntry,
+        slot: int,
+        device_info: DeviceInfo,
+        unique_id_prefix: str,
+    ) -> None:
+        """Initialize the software preset button."""
+        self._client = client
+        self._entry = entry
+        self._slot = slot
+        self._attr_translation_key = "preset"
+        self._attr_translation_placeholders = {"number": str(slot)}
+        self._attr_unique_id = f"{unique_id_prefix}_soft_preset_{slot}"
+        self._attr_device_info = device_info
+
+    async def async_added_to_hass(self) -> None:
+        """Register for connection and calibration updates."""
+        await super().async_added_to_hass()
+        self._client.register_connection_callback(self._on_client_state_changed)
+        self._client.register_calibration_state_callback(self._on_calibration_changed)
+
+    @callback
+    def _on_client_state_changed(self, connected: bool) -> None:
+        self.async_write_ha_state()
+
+    @callback
+    def _on_calibration_changed(self) -> None:
+        self.async_write_ha_state()
+
+    def _stored(self) -> dict | None:
+        """Return the stored {head, feet} positions for this slot, if any."""
+        presets = self._entry.options.get(CONF_SOFT_PRESETS) or {}
+        preset = presets.get(str(self._slot))
+        if isinstance(preset, dict) and "head" in preset and "feet" in preset:
+            return preset
+        return None
+
+    @property
+    def available(self) -> bool:
+        """Available when connected, idle and the slot has been saved."""
+        return (
+            self._client.is_connected()
+            and not self._client.is_calibration_active()
+            and self._stored() is not None
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, int] | None:
+        """Expose the stored positions."""
+        preset = self._stored()
+        if preset is None:
+            return None
+        return {"head": int(preset["head"]), "feet": int(preset["feet"])}
+
+    async def async_press(self) -> None:
+        """Move head and feet to the stored positions."""
+        preset = self._stored()
+        if preset is None:
+            _LOGGER.warning("Preset %d has not been saved yet", self._slot)
+            return
+        head_travel, feet_travel = _travel_times(self._entry)
+        await _run_to_position_tracked(
+            self._client,
+            int(preset["head"]),
+            int(preset["feet"]),
+            head_travel,
+            feet_travel,
+        )
+
+
+class OctoBedSaveSoftPresetButton(ButtonEntity):
+    """Save the current positions to an integration-stored preset slot."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:content-save"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        client: OctoBedClient,
+        entry: ConfigEntry,
+        slot: int,
+        device_info: DeviceInfo,
+        unique_id_prefix: str,
+    ) -> None:
+        """Initialize the save preset button."""
+        self._client = client
+        self._entry = entry
+        self._slot = slot
+        self._attr_translation_key = "save_preset"
+        self._attr_translation_placeholders = {"number": str(slot)}
+        self._attr_unique_id = f"{unique_id_prefix}_save_soft_preset_{slot}"
+        self._attr_device_info = device_info
+
+    async def async_added_to_hass(self) -> None:
+        """Register for connection updates."""
+        await super().async_added_to_hass()
+        self._client.register_connection_callback(self._on_connection_changed)
+
+    @callback
+    def _on_connection_changed(self, connected: bool) -> None:
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        return self._client.is_connected() and not self._client.is_calibration_active()
+
+    async def async_press(self) -> None:
+        """Store the current head/feet positions in this slot."""
+        options = dict(self._entry.options)
+        presets = dict(options.get(CONF_SOFT_PRESETS) or {})
+        presets[str(self._slot)] = {
+            "head": self._client.get_head_position(),
+            "feet": self._client.get_feet_position(),
+        }
+        options[CONF_SOFT_PRESETS] = presets
+        self.hass.config_entries.async_update_entry(self._entry, options=options)
+        _LOGGER.info(
+            "Saved preset %d: head %d%%, feet %d%%",
+            self._slot,
+            presets[str(self._slot)]["head"],
+            presets[str(self._slot)]["feet"],
+        )
 
 
 class OctoBedSavePresetButton(ButtonEntity):
@@ -517,11 +685,8 @@ class OctoBedSyncToOtherButton(ButtonEntity):
             return
         head = other_client.get_head_position()
         feet = other_client.get_feet_position()
-        opts = self._entry.options or {}
-        default = opts.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
-        head_travel = opts.get(CONF_HEAD_FULL_TRAVEL_SECONDS, default)
-        feet_travel = opts.get(CONF_FEET_FULL_TRAVEL_SECONDS, default)
-        await self._client.run_to_position(head, feet, head_travel, feet_travel)
+        head_travel, feet_travel = _travel_times(self._entry)
+        await _run_to_position_tracked(self._client, head, feet, head_travel, feet_travel)
 
 
 class OctoBedSyncToBedButton(ButtonEntity):
@@ -625,8 +790,5 @@ class OctoBedSyncToBedButton(ButtonEntity):
             return
         head = source_client.get_head_position()
         feet = source_client.get_feet_position()
-        opts = self._entry.options or {}
-        default = opts.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
-        head_travel = opts.get(CONF_HEAD_FULL_TRAVEL_SECONDS, default)
-        feet_travel = opts.get(CONF_FEET_FULL_TRAVEL_SECONDS, default)
-        await self._client.run_to_position(head, feet, head_travel, feet_travel)
+        head_travel, feet_travel = _travel_times(self._entry)
+        await _run_to_position_tracked(self._client, head, feet, head_travel, feet_travel)

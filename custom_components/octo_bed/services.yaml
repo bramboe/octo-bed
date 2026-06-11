@@ -1,0 +1,20 @@
+move_to_position:
+  target:
+    entity:
+      integration: octo_bed
+      domain: cover
+  fields:
+    head:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+    feet:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
