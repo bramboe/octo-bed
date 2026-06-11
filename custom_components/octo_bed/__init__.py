@@ -6,7 +6,7 @@ import asyncio
 import logging
 
 from homeassistant.components import bluetooth
-from homeassistant.config_entries import ConfigEntry, SOURCE_IMPORT
+from homeassistant.config_entries import ConfigEntry, SOURCE_IGNORE, SOURCE_IMPORT
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
@@ -47,6 +47,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if len(member_ids) < 2:
             _LOGGER.error("Group entry has fewer than 2 members")
             return False
+        for member_id in member_ids:
+            member = hass.config_entries.async_get_entry(member_id)
+            if member is None or member.source == SOURCE_IGNORE:
+                _LOGGER.error(
+                    "Group member %s is missing or an ignored discovery entry; "
+                    "remove this 'Both beds' device and pair two configured beds",
+                    member_id,
+                )
+                return False
         domain_data = hass.data.get(DOMAIN) or {}
         missing = [eid for eid in member_ids if eid not in domain_data]
         if missing:

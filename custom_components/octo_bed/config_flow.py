@@ -48,6 +48,14 @@ OCTO_BED_NAMES = ("Octo", "OCTO", "octo", "RC2")
 NO_PAIR = "none"
 
 
+def _is_real_bed(entry: ConfigEntry) -> bool:
+    """True for actual bed entries (not groups, not ignored discoveries)."""
+    return (
+        not (entry.data or {}).get(CONF_IS_GROUP)
+        and entry.source != config_entries.SOURCE_IGNORE
+    )
+
+
 def _bed_label(entry: ConfigEntry) -> str:
     """Human-readable label for a bed entry (title, with address if not already in it)."""
     title = entry.title or "Octo Bed"
@@ -154,7 +162,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Build method list: always Discover beds, Enter address; add Pair when 2+ beds exist
         non_group = [
             e for e in self.hass.config_entries.async_entries(DOMAIN)
-            if not (e.data or {}).get(CONF_IS_GROUP)
+            if _is_real_bed(e)
         ]
         method_options = [
             ("discovered", "Choose from discovered beds"),
@@ -180,7 +188,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Create a 'Both beds' device from two existing beds."""
         non_group = [
             e for e in self.hass.config_entries.async_entries(DOMAIN)
-            if not (e.data or {}).get(CONF_IS_GROUP)
+            if _is_real_bed(e)
         ]
         if len(non_group) < 2:
             return self.async_abort(reason="need_two_beds")
@@ -411,7 +419,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         self._device_name = (user_input.get("device_name") or "").strip()
                         other_beds = [
                             e for e in self.hass.config_entries.async_entries(DOMAIN)
-                            if not (e.data or {}).get(CONF_IS_GROUP)
+                            if _is_real_bed(e)
                         ]
                         self._other_beds = other_beds
                         if other_beds:
@@ -459,7 +467,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if other_beds is None:
             other_beds = [
                 e for e in self.hass.config_entries.async_entries(DOMAIN)
-                if not (e.data or {}).get(CONF_IS_GROUP)
+                if _is_real_bed(e)
             ]
         if not other_beds:
             return self._create_bed_entry()
