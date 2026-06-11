@@ -92,6 +92,8 @@ The time for full travel (0% to 100%) defaults to 30 seconds per motor. Use the 
 
 ### Calibration
 
+When adding a single bed, the flow asks whether to start calibration right away (off by default — the bed will physically move). Whether started from the flow or later via the buttons, calibration works like this:
+
 1. Press **Calibrate head** (or **Calibrate feet**). The bed first drives that part fully down so the measurement always starts from 0%, then starts moving it up while a timer runs.
 2. The moment the part reaches its highest point, press **Complete calibration session**. The measured time (clamped to 5–120 s) is saved as that motor's full travel time and the part returns to 0%.
 3. The **Stop** button stays available during calibration and aborts the session without saving. A session that is never completed aborts itself after 3 minutes.

@@ -27,6 +27,7 @@ except ImportError:  # pragma: no cover - older cores
     from homeassistant.data_entry_flow import FlowResult as ConfigFlowResult
 
 from .const import (
+    CONF_CALIBRATE_ON_ADD,
     CONF_DEVICE_ADDRESS,
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_FULL_TRAVEL_SECONDS,
@@ -114,6 +115,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._device_name: str = ""
         self._other_beds: list[ConfigEntry] | None = None
         self._pair_calibrate: bool = True
+        self._calibrate_on_add: bool = False
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
@@ -430,7 +432,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         self._other_beds = other_beds
                         if other_beds:
                             return await self.async_step_pair_choice()
-                        return self._create_bed_entry()
+                        return await self.async_step_calibrate_now()
 
         schema = vol.Schema(
             {
@@ -460,6 +462,21 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         )
 
+    async def async_step_calibrate_now(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask whether to start calibrating this bed right after it is added."""
+        if user_input is not None:
+            self._calibrate_on_add = bool(user_input.get("calibrate_now", False))
+            return self._create_bed_entry()
+
+        return self.async_show_form(
+            step_id="calibrate_now",
+            data_schema=vol.Schema(
+                {vol.Required("calibrate_now", default=False): bool}
+            ),
+        )
+
     def _create_bed_entry(self) -> ConfigFlowResult:
         """Create the config entry for the bed (and optionally group)."""
         title = f"Octo Bed ({self._address})" if not self._device_name else self._device_name
@@ -467,6 +484,8 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if self._pair_with_entry_id:
             data[CONF_PAIR_WITH_ENTRY_ID] = self._pair_with_entry_id
             data[CONF_PAIR_CALIBRATE] = getattr(self, "_pair_calibrate", True)
+        elif self._calibrate_on_add:
+            data[CONF_CALIBRATE_ON_ADD] = True
         return self.async_create_entry(
             title=title,
             data=data,
@@ -485,7 +504,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._pair_with_entry_id = None if pair in ("", NO_PAIR) else pair
             if self._pair_with_entry_id:
                 return await self.async_step_calibrate_choice()
-            return self._create_bed_entry()
+            return await self.async_step_calibrate_now()
 
         other_beds = self._other_beds
         if other_beds is None:
@@ -494,7 +513,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if _is_real_bed(e)
             ]
         if not other_beds:
-            return self._create_bed_entry()
+            return await self.async_step_calibrate_now()
 
         pair_options = [(e.entry_id, _bed_label(e)) for e in other_beds]
         pair_options.insert(0, (NO_PAIR, "No, keep as separate devices"))

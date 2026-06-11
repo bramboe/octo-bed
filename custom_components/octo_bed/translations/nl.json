@@ -53,6 +53,13 @@
           "bed_2": "Tweede bed",
           "calibrate_both": "Kalibratie van beide bedden op het gecombineerde apparaat inschakelen"
         }
+      },
+      "calibrate_now": {
+        "title": "Dit bed nu kalibreren?",
+        "description": "Als je dit inschakelt, start direct na het toevoegen de kalibratie van het hoofdeinde: het rijdt eerst volledig omlaag naar 0% en beweegt daarna omhoog terwijl de looptijd wordt gemeten. Druk op \"Kalibratiesessie voltooien\" zodra het hoofdeinde het hoogste punt bereikt, en herhaal daarna voor het voeteneinde met \"Voeteneinde kalibreren\". Het bed gaat fysiek bewegen. Je kunt dit ook later doen met de kalibratieknoppen; een niet-afgeronde sessie stopt zichzelf na 3 minuten en Stop breekt altijd af.",
+        "data": {
+          "calibrate_now": "Kalibratie starten na toevoegen"
+        }
       }
     },
     "error": {

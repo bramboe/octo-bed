@@ -53,6 +53,13 @@
           "bed_2": "Deuxième lit",
           "calibrate_both": "Activer l'étalonnage des deux lits sur l'appareil combiné"
         }
+      },
+      "calibrate_now": {
+        "title": "Étalonner ce lit maintenant ?",
+        "description": "Si activé, l'étalonnage de la tête démarre juste après l'ajout du lit : elle descend d'abord complètement à 0 %, puis remonte pendant que le temps de course est mesuré. Appuyez sur « Terminer l'étalonnage » dès que la tête atteint son point le plus haut, puis répétez pour les pieds avec « Étalonner les pieds ». Le lit va bouger physiquement. Vous pouvez aussi le faire plus tard avec les boutons d'étalonnage ; une session inachevée s'arrête d'elle-même après 3 minutes et Arrêt l'interrompt à tout moment.",
+        "data": {
+          "calibrate_now": "Démarrer l'étalonnage après l'ajout"
+        }
       }
     },
     "error": {

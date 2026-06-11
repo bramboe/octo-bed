@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from .const import (
+    CONF_CALIBRATE_ON_ADD,
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_FULL_TRAVEL_SECONDS,
     CONF_GROUP_OPTIONS,
@@ -132,6 +133,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.config_entries.async_update_entry(entry, data=new_data)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # User opted in during the add flow: start calibrating the head section.
+    # Strip the flag first so a reload/restart never re-triggers the movement.
+    if entry.data.get(CONF_CALIBRATE_ON_ADD):
+        new_data = {k: v for k, v in entry.data.items() if k != CONF_CALIBRATE_ON_ADD}
+        hass.config_entries.async_update_entry(entry, data=new_data)
+        down_seconds = entry.options.get(
+            CONF_HEAD_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
+        )
+        _LOGGER.info(
+            "Starting initial calibration (head) for %s as requested during setup",
+            entry.title,
+        )
+        hass.async_create_task(client.start_calibration("head", down_seconds))
 
     return True
 

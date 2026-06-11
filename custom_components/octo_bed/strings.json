@@ -53,6 +53,13 @@
           "bed_2": "Second bed",
           "calibrate_both": "Enable calibration of both beds on the combined device"
         }
+      },
+      "calibrate_now": {
+        "title": "Calibrate this bed now?",
+        "description": "If enabled, calibration of the head section starts right after the bed is added: it first drives fully down to 0%, then moves up while the travel time is measured. Press \"Complete calibration session\" the moment the head reaches its highest point, then repeat for the feet with \"Calibrate feet\". The bed will physically move. You can also do this later with the calibration buttons; an unfinished session aborts itself after 3 minutes and Stop aborts it at any time.",
+        "data": {
+          "calibrate_now": "Start calibration after adding"
+        }
       }
     },
     "error": {

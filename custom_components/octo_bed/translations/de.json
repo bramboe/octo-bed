@@ -53,6 +53,13 @@
           "bed_2": "Zweites Bett",
           "calibrate_both": "Kalibrierung beider Betten auf dem kombinierten Gerät aktivieren"
         }
+      },
+      "calibrate_now": {
+        "title": "Dieses Bett jetzt kalibrieren?",
+        "description": "Wenn aktiviert, startet direkt nach dem Hinzufügen die Kalibrierung des Kopfteils: Es fährt zuerst vollständig nach unten auf 0 % und bewegt sich dann nach oben, während die Laufzeit gemessen wird. Drücke \"Kalibrierung abschließen\", sobald das Kopfteil den höchsten Punkt erreicht, und wiederhole es anschließend für das Fußteil mit \"Fußteil kalibrieren\". Das Bett bewegt sich dabei. Du kannst dies auch später über die Kalibrierungstasten tun; eine nicht abgeschlossene Sitzung bricht nach 3 Minuten automatisch ab und Stopp bricht jederzeit ab.",
+        "data": {
+          "calibrate_now": "Kalibrierung nach dem Hinzufügen starten"
+        }
       }
     },
     "error": {
