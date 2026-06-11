@@ -49,31 +49,24 @@ async def async_setup_entry(
         manufacturer="Octo",
     )
 
-    default_travel = entry.options.get(
-        CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
-    )
-    head_travel = entry.options.get(CONF_HEAD_FULL_TRAVEL_SECONDS, default_travel)
-    feet_travel = entry.options.get(CONF_FEET_FULL_TRAVEL_SECONDS, default_travel)
-    both_travel = max(head_travel, feet_travel)
-
     entities: list[SwitchEntity] = [
         OctoBedMovementSwitch(
-            client, "both_up", "Both Up", "mdi:arrow-up-bold", device_info, both_travel, uid
+            client, "both_up", "Both Up", "mdi:arrow-up-bold", device_info, entry, uid
         ),
         OctoBedMovementSwitch(
-            client, "both_down", "Both Down", "mdi:arrow-down-bold", device_info, both_travel, uid
+            client, "both_down", "Both Down", "mdi:arrow-down-bold", device_info, entry, uid
         ),
         OctoBedMovementSwitch(
-            client, "head_up", "Head Up", "mdi:arrow-up", device_info, head_travel, uid
+            client, "head_up", "Head Up", "mdi:arrow-up", device_info, entry, uid
         ),
         OctoBedMovementSwitch(
-            client, "head_down", "Head Down", "mdi:arrow-down", device_info, head_travel, uid
+            client, "head_down", "Head Down", "mdi:arrow-down", device_info, entry, uid
         ),
         OctoBedMovementSwitch(
-            client, "feet_up", "Feet Up", "mdi:arrow-up", device_info, feet_travel, uid
+            client, "feet_up", "Feet Up", "mdi:arrow-up", device_info, entry, uid
         ),
         OctoBedMovementSwitch(
-            client, "feet_down", "Feet Down", "mdi:arrow-down", device_info, feet_travel, uid
+            client, "feet_down", "Feet Down", "mdi:arrow-down", device_info, entry, uid
         ),
     ]
 
@@ -140,7 +133,7 @@ class OctoBedMovementSwitch(SwitchEntity):
         name: str,
         icon: str,
         device_info: DeviceInfo,
-        full_travel_seconds: int,
+        entry: ConfigEntry,
         unique_id_prefix: str,
     ) -> None:
         """Initialize the movement switch."""
@@ -151,8 +144,20 @@ class OctoBedMovementSwitch(SwitchEntity):
         self._attr_unique_id = f"{unique_id_prefix}_move_{action}"
         self._attr_device_info = device_info
         self._is_on: bool = False
-        self._full_travel_seconds = full_travel_seconds
+        self._entry = entry
         self._task: asyncio.Task[None] | None = None
+
+    def _travel_seconds(self) -> int:
+        """Full travel seconds for this action, read live so calibration updates apply."""
+        opts = self._entry.options
+        default = opts.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
+        head = opts.get(CONF_HEAD_FULL_TRAVEL_SECONDS, default)
+        feet = opts.get(CONF_FEET_FULL_TRAVEL_SECONDS, default)
+        if "both" in self._action:
+            return max(head, feet)
+        if "head" in self._action:
+            return head
+        return feet
 
     async def async_added_to_hass(self) -> None:
         """Register for calibration and connection updates."""
@@ -233,7 +238,8 @@ class OctoBedMovementSwitch(SwitchEntity):
 
         target_position = 100 if going_up else 0
         position_delta = target_position - start_position
-        end_time = time.monotonic() + self._full_travel_seconds
+        full_travel = self._travel_seconds()
+        end_time = time.monotonic() + full_travel
         start_time = time.monotonic()
         cancelled = False
         try:
@@ -244,7 +250,7 @@ class OctoBedMovementSwitch(SwitchEntity):
                 await method()
 
                 elapsed = time.monotonic() - start_time
-                progress = min(1.0, elapsed / self._full_travel_seconds)
+                progress = min(1.0, elapsed / full_travel)
                 position_setter(int(round(start_position + position_delta * progress)))
 
                 await asyncio.sleep(0.1)
@@ -252,7 +258,7 @@ class OctoBedMovementSwitch(SwitchEntity):
             cancelled = True
         finally:
             elapsed = time.monotonic() - start_time
-            progress = min(1.0, elapsed / self._full_travel_seconds)
+            progress = min(1.0, elapsed / full_travel)
             position_setter(int(round(start_position + position_delta * progress)))
 
             # If we reached full-travel time (not cancelled), send stop command.

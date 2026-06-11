@@ -149,8 +149,12 @@ class OctoBedButton(ButtonEntity):
 
     @property
     def available(self) -> bool:
-        """Available when connected and no calibration is active."""
-        return self._client.is_connected() and not self._client.is_calibration_active()
+        """Available whenever connected.
+
+        Deliberately stays available during calibration: Stop is the
+        emergency exit that aborts a calibration session without saving.
+        """
+        return self._client.is_connected()
 
     async def async_press(self) -> None:
         """Press the button."""
@@ -282,8 +286,16 @@ class OctoBedCalibrateButton(ButtonEntity):
         return not self._client.is_calibration_active()
 
     async def async_press(self) -> None:
-        """Start calibration: move this part up and start counting seconds."""
-        await self._client.start_calibration(self._part)
+        """Start calibration: drive this part to 0% first, then measure upward travel."""
+        opts = self._entry.options or {}
+        default = opts.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
+        key = (
+            CONF_HEAD_FULL_TRAVEL_SECONDS
+            if self._part == "head"
+            else CONF_FEET_FULL_TRAVEL_SECONDS
+        )
+        down_seconds = opts.get(key, default)
+        await self._client.start_calibration(self._part, down_seconds)
 
 
 class OctoBedCompleteCalibrationButton(ButtonEntity):
@@ -332,6 +344,16 @@ class OctoBedCompleteCalibrationButton(ButtonEntity):
         if part is None or duration_seconds <= 0:
             _LOGGER.warning("Complete calibration pressed but no calibration was active")
             return
+        # Clamp to the same range the options flow allows (5-120 s)
+        clamped = max(5.0, min(120.0, duration_seconds))
+        if clamped != duration_seconds:
+            _LOGGER.warning(
+                "Measured travel time %.1f s for %s is outside 5-120 s; clamped to %.0f s",
+                duration_seconds,
+                part,
+                clamped,
+            )
+            duration_seconds = clamped
         # Save duration as full travel for this part
         options = dict(self._entry.options)
         if part == "head":

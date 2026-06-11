@@ -95,8 +95,8 @@ class OctoBedCalibrationStatusSensor(SensorEntity):
     def native_value(self) -> str:
         """Return human-readable calibration status for display."""
         state, part = self._client.get_calibration_status()
-        if state == "idle":
-            return "Inactive"
+        if state == "preparing":
+            return f"Moving to start position ({part})" if part else "Moving to start position"
         if state == "tracking":
             return f"Measuring full travel ({part})" if part else "Measuring full travel"
         if state == "returning":
@@ -104,15 +104,18 @@ class OctoBedCalibrationStatusSensor(SensorEntity):
         return "Inactive"
 
     @property
-    def extra_state_attributes(self) -> dict[str, str | None]:
-        """Return raw state and part for automation."""
+    def extra_state_attributes(self) -> dict[str, str | int | None]:
+        """Return raw state, part and elapsed measuring time for automation."""
         state, part = self._client.get_calibration_status()
         raw = "idle"
+        if state in ("preparing", "tracking", "returning"):
+            raw = f"{state}_{part}" if part else state
+        attrs: dict[str, str | int | None] = {"part": part, "state": raw}
         if state == "tracking":
-            raw = f"tracking_{part}" if part else "tracking"
-        elif state == "returning":
-            raw = f"returning_{part}" if part else "returning"
-        return {"part": part, "state": raw}
+            attrs["elapsed_seconds"] = int(
+                self._client.get_calibration_elapsed_seconds()
+            )
+        return attrs
 
 
 class OctoBedDiagnosticSensor(SensorEntity):

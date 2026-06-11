@@ -189,9 +189,18 @@ class GroupOctoBedClient:
         return all(results)
 
     # Calibration on group: run on both beds so they stay in sync
-    async def start_calibration(self, part: str) -> None:
+    async def start_calibration(self, part: str, down_seconds: float = 30.0) -> None:
         """Start calibration for this part on all beds."""
-        await asyncio.gather(*[c.start_calibration(part) for c in self._clients])
+        await asyncio.gather(
+            *[c.start_calibration(part, down_seconds) for c in self._clients]
+        )
+
+    async def cancel_calibration(self) -> bool:
+        """Abort calibration on all beds without saving."""
+        results = await asyncio.gather(
+            *[c.cancel_calibration() for c in self._clients]
+        )
+        return any(results)
 
     async def complete_calibration(self) -> tuple[str | None, float]:
         """Complete calibration on all beds; use max duration for return movement."""

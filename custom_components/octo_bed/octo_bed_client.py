@@ -36,6 +36,11 @@ _LOGGER = logging.getLogger(__name__)
 
 RECONNECT_DELAYS = (5, 10, 20, 30, 60)
 FEATURE_DISCOVERY_TIMEOUT = 5.0
+# Calibration limits: travel times are clamped to this range when saved, and
+# a measuring session that is never completed aborts itself.
+MIN_TRAVEL_SECONDS = 5.0
+MAX_TRAVEL_SECONDS = 120.0
+MAX_CALIBRATION_TRACKING_SECONDS = 180.0
 
 
 class OctoBedClient:
@@ -67,8 +72,9 @@ class OctoBedClient:
         self._connection_callbacks: list[Callable[[bool], None]] = []
         # Track active movements by part to prevent conflicts
         self._active_movements: dict[str, asyncio.Task[None]] = {}  # "head", "feet", "both"
-        # Calibration: part being calibrated and when it started
+        # Calibration: part being calibrated, phase and when measuring started
         self._calibration_part: str | None = None
+        self._calibration_phase: str | None = None  # "preparing" | "tracking"
         self._calibration_start_time: float | None = None
         self._calibration_task: asyncio.Task[None] | None = None
         # True while move_part_down_for_seconds is running (after complete_calibration)
@@ -550,62 +556,123 @@ class OctoBedClient:
         self._calibration_state_callbacks.append(callback)
 
     def is_calibration_active(self) -> bool:
-        """Return True if calibration is in progress (tracking time or moving part down)."""
-        return self._calibration_part is not None or self._calibration_completing
+        """Return True if calibration is in progress (any phase)."""
+        return self._calibration_phase is not None or self._calibration_completing
 
-    async def start_calibration(self, part: str) -> None:
-        """Start calibration for head or feet: move that part up and start counting time."""
+    def _reset_calibration_tracking(self) -> None:
+        """Clear the preparing/tracking session state and notify listeners."""
+        self._calibration_part = None
+        self._calibration_phase = None
+        self._calibration_start_time = None
+        self._calibration_task = None
+        self._notify_calibration_state()
+
+    async def start_calibration(
+        self, part: str, down_seconds: float = 30.0
+    ) -> None:
+        """Start calibration for head or feet.
+
+        First drives the part fully down (current travel time + margin) so the
+        measurement starts from 0%, then moves up while counting time.
+        """
         if part not in ("head", "feet"):
             return
-        if self._calibration_task and not self._calibration_task.done():
-            self._calibration_task.cancel()
-            try:
-                await self._calibration_task
-            except asyncio.CancelledError:
-                pass
-            await self.send_stop()
+        await self.cancel_calibration()
         self._calibration_part = part
-        self._calibration_start_time = time.monotonic()
-        method = self.head_up if part == "head" else self.feet_up
-        self._calibration_task = asyncio.create_task(self._calibration_move_loop(method))
+        self._calibration_phase = "preparing"
+        self._calibration_start_time = None
+        self._calibration_task = asyncio.create_task(
+            self._calibration_session(part, down_seconds)
+        )
         self.register_movement_task(self._calibration_task)
         self.register_active_movement(part, self._calibration_task)
         self._notify_calibration_state()
 
-    async def _calibration_move_loop(self, method: Callable[[], Coroutine[Any, Any, bool]]) -> None:
-        """Send movement command repeatedly until calibration is completed or cancelled."""
+    async def _calibration_session(self, part: str, down_seconds: float) -> None:
+        """Drive the part to 0%, then move up while measuring until completed."""
+        up = self.head_up if part == "head" else self.feet_up
+        down = self.head_down if part == "head" else self.feet_down
+        setter = self.set_head_position if part == "head" else self.set_feet_position
+        cancelled = False
         try:
-            while True:
-                await method()
+            # Phase 1: ensure the part is at 0% (down for full travel + margin)
+            down_for = max(MIN_TRAVEL_SECONDS, min(MAX_TRAVEL_SECONDS, float(down_seconds))) + 2.0
+            end = time.monotonic() + down_for
+            while time.monotonic() < end:
+                if not await down():
+                    _LOGGER.warning("Calibration for %s aborted: bed not reachable", part)
+                    return
                 await asyncio.sleep(0.1)
+            await self.send_stop()
+            setter(0)
+
+            # Phase 2: move up and measure until complete_calibration is called
+            self._calibration_phase = "tracking"
+            self._calibration_start_time = time.monotonic()
+            self._notify_calibration_state()
+            end = time.monotonic() + MAX_CALIBRATION_TRACKING_SECONDS
+            while time.monotonic() < end:
+                if not await up():
+                    _LOGGER.warning("Calibration for %s aborted: bed not reachable", part)
+                    return
+                await asyncio.sleep(0.1)
+            _LOGGER.warning(
+                "Calibration session for %s not completed within %d s; aborted without saving",
+                part,
+                int(MAX_CALIBRATION_TRACKING_SECONDS),
+            )
         except asyncio.CancelledError:
-            pass
+            # Cancellers (complete/cancel_calibration, stop, conflicting moves)
+            # send the stop command themselves.
+            cancelled = True
+            raise
+        finally:
+            if not cancelled:
+                await self.send_stop()
+            # Always clear session state so a cancellation from any source
+            # (e.g. a conflicting movement) can never wedge the entities.
+            self._reset_calibration_tracking()
+
+    async def cancel_calibration(self) -> bool:
+        """Abort any calibration session without saving. Returns True if one was active."""
+        active = self._calibration_phase is not None
+        task = self._calibration_task
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            await self.send_stop()
+        if active:
+            self._reset_calibration_tracking()
+        return active
 
     async def complete_calibration(self) -> tuple[str | None, float]:
-        """Stop calibration movement and return (part, duration_seconds). Returns (None, 0) if no calibration active."""
-        if self._calibration_part is None or self._calibration_start_time is None:
+        """Stop measuring and return (part, duration_seconds).
+
+        Returns (None, 0) when no measuring session is active (e.g. still in
+        the preparing phase).
+        """
+        if self._calibration_phase != "tracking" or self._calibration_start_time is None:
             return (None, 0.0)
         part = self._calibration_part
         duration = max(0.0, time.monotonic() - self._calibration_start_time)
-        if self._calibration_task and not self._calibration_task.done():
-            self._calibration_task.cancel()
+        task = self._calibration_task
+        if task and not task.done():
+            task.cancel()
             try:
-                await self._calibration_task
+                await task
             except asyncio.CancelledError:
                 pass
         await self.send_stop()
-        self._calibration_part = None
-        self._calibration_start_time = None
-        self._calibration_task = None
-        if part in self._active_movements:
-            self._active_movements.pop(part, None)
-        self._notify_calibration_state()
+        self._reset_calibration_tracking()
         _LOGGER.info("Calibration complete for %s: %.1f seconds (100%% travel)", part, duration)
         return (part, duration)
 
     def is_calibrating(self) -> bool:
-        """Return True if a calibration session is active."""
-        return self._calibration_part is not None
+        """Return True while the measuring (tracking) phase is active."""
+        return self._calibration_phase == "tracking"
 
     def get_calibration_elapsed_seconds(self) -> float:
         """Return seconds elapsed since calibration started, or 0 if not calibrating."""
@@ -649,11 +716,11 @@ class OctoBedClient:
             self._notify_calibration_state()
 
     def get_calibration_status(self) -> tuple[str, str | None]:
-        """Return (state, part) for calibration. state: 'idle' | 'tracking' | 'returning'; part: 'head' | 'feet' | None."""
+        """Return (state, part). state: 'idle' | 'preparing' | 'tracking' | 'returning'."""
         if self._calibration_completing and self._calibration_returning_part:
             return ("returning", self._calibration_returning_part)
-        if self._calibration_part is not None:
-            return ("tracking", self._calibration_part)
+        if self._calibration_phase is not None:
+            return (self._calibration_phase, self._calibration_part)
         return ("idle", None)
 
     # ------------------------------------------------------------------ position
@@ -766,7 +833,12 @@ class OctoBedClient:
                 _LOGGER.debug("Position callback failed", exc_info=True)
 
     async def stop(self) -> bool:
-        """Send stop command and cancel all active movement tasks."""
+        """Send stop command and cancel all active movement tasks.
+
+        Also aborts a running calibration session (without saving) so a stop
+        from any source can never leave the calibration state wedged.
+        """
+        await self.cancel_calibration()
         for task in list(self._active_movement_tasks):
             if not task.done():
                 task.cancel()
