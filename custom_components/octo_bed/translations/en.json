@@ -46,24 +46,21 @@
       "need_two_beds": "At least two beds are required to pair. Add another bed first.",
       "entry_not_found": "One of the selected beds is no longer available.",
       "pair_created": "Paired device \"Both beds\" has been created.",
-      "already_paired": "These two beds are already paired."
+      "already_paired": "These two beds are already paired.",
+      "not_supported": "This flow can only be started by the integration itself."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Configuration",
-        "description": "{config_description}",
+        "description": "Set full travel time (seconds) for head and feet (updated by calibration or default 30 s). Optionally show or hide the calibration buttons on the device.",
         "data": {
           "head_full_travel_seconds": "Head full travel (seconds)",
           "feet_full_travel_seconds": "Feet full travel (seconds)",
           "show_calibration_buttons": "Show calibration buttons"
         }
       }
-    },
-    "error": {
-      "invalid_number": "Enter a valid number.",
-      "invalid_range": "Head and feet travel must be between 5 and 120 seconds."
     }
   }
 }

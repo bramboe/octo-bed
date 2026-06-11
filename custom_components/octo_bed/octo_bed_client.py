@@ -12,41 +12,30 @@ from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 
+from . import protocol
 from .const import (
     CMD_BOTH_DOWN,
     CMD_BOTH_UP,
-    CMD_BOTH_UP_CONTINUOUS,
     CMD_FEET_DOWN,
     CMD_FEET_UP,
     CMD_HEAD_DOWN,
     CMD_HEAD_UP,
-    CMD_HEAD_UP_CONTINUOUS,
     CMD_LIGHT_OFF,
     CMD_LIGHT_ON,
-    CMD_PIN_PREFIX,
-    CMD_PIN_SUFFIX,
     CMD_STOP,
     COMMAND_CHAR_UUID,
-    COMMAND_HANDLE,
-    NOTIFY_HANDLE,
     NOTIFY_PIN_ACCEPTED,
     NOTIFY_PIN_REJECTED,
     NOTIFY_PIN_REQUIRED,
     NOTIFY_PIN_REQUIRED_ALT,
+    PIN_KEEPALIVE_SECONDS,
 )
+from .protocol import encode_pin
 
 _LOGGER = logging.getLogger(__name__)
 
-
-def encode_pin(pin: str) -> bytes:
-    """Encode 4-digit PIN into command format.
-    Format from working script: 402043000400 + XX XX XX XX + 40
-    PIN digits as bytes: 0->0x00, 1->0x01, ..., 9->0x09
-    """
-    if len(pin) != 4 or not pin.isdigit():
-        raise ValueError("PIN must be 4 digits")
-    pin_bytes = bytes(int(d) for d in pin)
-    return CMD_PIN_PREFIX + pin_bytes + CMD_PIN_SUFFIX
+RECONNECT_DELAYS = (5, 10, 20, 30, 60)
+FEATURE_DISCOVERY_TIMEOUT = 5.0
 
 
 class OctoBedClient:
@@ -65,14 +54,17 @@ class OctoBedClient:
         self._client: BleakClient | None = None
         self._disconnect_callback = disconnect_callback
         self._device_resolver = device_resolver
-        self._pin_sent = False
         self._intentional_disconnect = False
         self._keepalive_task: asyncio.Task[None] | None = None
+        self._reconnect_task: asyncio.Task[None] | None = None
+        self._pin_task: asyncio.Task[bool] | None = None
+        self._connect_lock = asyncio.Lock()
         self._active_movement_tasks: set[asyncio.Task[None]] = set()
         # Shared position state (0-100, where 0 = down, 100 = up)
         self._head_position: int = 0
         self._feet_position: int = 0
         self._position_callbacks: list[Callable[[str, int], None]] = []
+        self._connection_callbacks: list[Callable[[bool], None]] = []
         # Track active movements by part to prevent conflicts
         self._active_movements: dict[str, asyncio.Task[None]] = {}  # "head", "feet", "both"
         # Calibration: part being calibrated and when it started
@@ -83,6 +75,110 @@ class OctoBedClient:
         self._calibration_completing: bool = False
         self._calibration_returning_part: str | None = None  # "head" or "feet" while returning
         self._calibration_state_callbacks: list[Callable[[], None]] = []
+        # Bed capabilities (filled by discover_features; None = unknown)
+        self._features_complete = asyncio.Event()
+        self._motor_count: int | None = None
+        self._memory_count: int | None = None
+        self._has_light: bool | None = None
+        self._has_rgbwi: bool = False
+        self._rgbwi_value_type: int | None = None
+        self._has_synchro: bool | None = None
+        self._synchro_active: bool | None = None
+
+    # ---------------------------------------------------------------- features
+
+    @property
+    def memory_slot_count(self) -> int:
+        """Number of hardware memory preset slots (0 if unsupported/unknown)."""
+        return self._memory_count or 0
+
+    @property
+    def has_synchro(self) -> bool:
+        """True if the bed supports linked/synchro drive mode."""
+        return bool(self._has_synchro)
+
+    @property
+    def synchro_active(self) -> bool | None:
+        """Current drive mode (True=sync, False=single, None=unknown)."""
+        return self._synchro_active
+
+    @property
+    def has_rgbwi_light(self) -> bool:
+        """True if the bed reported RGBW+intensity light control."""
+        return self._has_rgbwi
+
+    def get_feature_summary(self) -> dict[str, Any]:
+        """Return discovered capabilities (for diagnostics)."""
+        return {
+            "motor_count": self._motor_count,
+            "memory_slots": self._memory_count,
+            "has_light": self._has_light,
+            "has_rgbwi_light": self._has_rgbwi,
+            "has_synchro": self._has_synchro,
+            "synchro_active": self._synchro_active,
+        }
+
+    async def discover_features(self) -> bool:
+        """Query bed capabilities; returns True when the full list was received.
+
+        Best effort: beds that do not answer keep their defaults and the
+        integration behaves as before discovery existed.
+        """
+        if not self.is_connected():
+            return False
+        self._features_complete.clear()
+        try:
+            await self._send_command(
+                protocol.build_packet(protocol.CMD_SYSTEM_GET_CAPS)
+            )
+            await asyncio.wait_for(
+                self._features_complete.wait(), FEATURE_DISCOVERY_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            _LOGGER.debug("Feature discovery timed out; using defaults")
+            return False
+        except BleakError as err:
+            _LOGGER.debug("Feature discovery failed: %s", err)
+            return False
+        _LOGGER.info("Octo bed features: %s", self.get_feature_summary())
+        if self._has_synchro:
+            await self._send_command(
+                protocol.build_packet(protocol.CMD_CONFIG_GET_DRIVEMODE)
+            )
+        return True
+
+    def _handle_feature_response(self, data: list[int]) -> None:
+        """Process one capability entry from a feature discovery response."""
+        result = protocol.extract_feature(data)
+        if result is None:
+            return
+        feature_id, value, value_type = result
+        if feature_id == protocol.FEATURE_END:
+            self._features_complete.set()
+        elif feature_id == protocol.FEATURE_MOTORCOUNT:
+            self._motor_count = value[0] if value else None
+        elif feature_id == protocol.FEATURE_MEMCOUNT:
+            self._memory_count = value[0] if value else 0
+        elif feature_id == protocol.FEATURE_SYNCHRO:
+            self._has_synchro = True
+        elif feature_id == protocol.FEATURE_LIGHT:
+            self._has_light = True
+        elif feature_id == protocol.FEATURE_LIGHT_RGBWI:
+            self._has_rgbwi = True
+            self._rgbwi_value_type = value_type
+
+    # ------------------------------------------------------------- connection
+
+    def register_connection_callback(self, callback: Callable[[bool], None]) -> None:
+        """Register a callback invoked with the new connected state."""
+        self._connection_callbacks.append(callback)
+
+    def _notify_connection_change(self, connected: bool) -> None:
+        for callback in self._connection_callbacks:
+            try:
+                callback(connected)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Connection callback failed", exc_info=True)
 
     def _start_keepalive(self) -> None:
         if self._keepalive_task and not self._keepalive_task.done():
@@ -101,15 +197,15 @@ class OctoBedClient:
             return
 
     async def _keep_alive_loop(self) -> None:
-        """Background task: refresh PIN authentication periodically."""
+        """Background task: refresh PIN authentication periodically.
+
+        Transient write failures are tolerated; the loop only ends when the
+        connection is gone (the reconnect logic restarts it on reconnect).
+        """
         while True:
-            await asyncio.sleep(30)
+            await asyncio.sleep(PIN_KEEPALIVE_SECONDS)
             client = self._client
-            if (
-                self._intentional_disconnect
-                or not client
-                or not client.is_connected
-            ):
+            if self._intentional_disconnect or not client or not client.is_connected:
                 return
             try:
                 await client.write_gatt_char(
@@ -117,134 +213,139 @@ class OctoBedClient:
                 )
                 _LOGGER.debug("Keep-alive PIN pulse sent")
             except Exception as err:  # noqa: BLE001
-                _LOGGER.debug("Keep-alive failed: %s", err)
+                _LOGGER.debug("Keep-alive write failed (will retry): %s", err)
+
+    def _on_disconnect(self, _client: BleakClient) -> None:
+        """Handle an unexpected or intentional disconnect."""
+        self._client = None
+        self._notify_connection_change(False)
+        if self._intentional_disconnect:
+            return
+        if self._disconnect_callback:
+            try:
+                self._disconnect_callback()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Disconnect callback failed", exc_info=True)
+        self._schedule_reconnect()
+
+    def _schedule_reconnect(self) -> None:
+        if self._reconnect_task and not self._reconnect_task.done():
+            return
+        self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+
+    async def _reconnect_loop(self) -> None:
+        """Reconnect with backoff after an unexpected disconnect."""
+        for attempt, delay in enumerate(
+            list(RECONNECT_DELAYS) + [RECONNECT_DELAYS[-1]] * 1000, start=1
+        ):
+            await asyncio.sleep(delay)
+            if self._intentional_disconnect:
                 return
+            if self.is_connected():
+                return
+            _LOGGER.debug("Reconnect attempt %d to %s", attempt, self._device.address)
+            try:
+                if await self.connect():
+                    _LOGGER.info("Reconnected to Octo bed at %s", self._device.address)
+                    return
+            except asyncio.CancelledError:
+                raise
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Reconnect attempt failed: %s", err)
+
+    async def _establish(self) -> None:
+        """Create the BLE connection and subscribe to notifications."""
+        if self._device_resolver:
+            fresh = await self._device_resolver()
+            if fresh:
+                self._device = fresh
+        try:
+            self._client = await establish_connection(
+                BleakClientWithServiceCache,
+                self._device,
+                "Octo Bed",
+                disconnected_callback=self._on_disconnect,
+                timeout=15.0,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug(
+                "establish_connection failed, trying direct BleakClient: %s", err
+            )
+            direct = BleakClient(self._device, disconnected_callback=self._on_disconnect)
+            await direct.connect(timeout=15.0)
+            self._client = direct
+        _LOGGER.debug("Connected to Octo bed at %s", self._device.address)
+        try:
+            await self._client.start_notify(
+                COMMAND_CHAR_UUID, self._notification_handler
+            )
+        except Exception as err:  # noqa: BLE001
+            # Notifications drive re-auth requests and feature discovery but
+            # the bed can still be controlled without them.
+            _LOGGER.debug("Could not subscribe to notifications: %s", err)
 
     async def connect(self) -> bool:
         """Connect to the bed and authenticate with PIN."""
-        try:
-            def _on_disconnect(client: BleakClient) -> None:
-                self._client = None
-                if not self._intentional_disconnect and self._disconnect_callback:
-                    self._disconnect_callback()
-
-            self._intentional_disconnect = False
+        async with self._connect_lock:
+            if self.is_connected():
+                return True
             try:
-                self._client = await establish_connection(
-                    BleakClientWithServiceCache,
-                    self._device,
-                    "Octo Bed",
-                    disconnected_callback=_on_disconnect,
-                    timeout=15.0,
-                )
+                self._intentional_disconnect = False
+                await self._establish()
+                await self.send_pin()
+                self._start_keepalive()
+                self._notify_connection_change(True)
+                return True
+            except asyncio.CancelledError:
+                raise  # do not treat task cancellation as connection failure
             except Exception as err:  # noqa: BLE001
-                _LOGGER.debug(
-                    "establish_connection failed, trying direct BleakClient: %s", err
-                )
-                direct = BleakClient(self._device, disconnected_callback=_on_disconnect)
-                await direct.connect(timeout=15.0)
-                self._client = direct
-
-            _LOGGER.debug("Connected to Octo bed at %s", self._device.address)
-
-            # Ensure services are discovered on all backends
-            try:
-                await self._client.get_services()
-            except Exception:  # noqa: BLE001
-                pass
-
-            # Send PIN immediately after connection (bed may require it)
-            await self.send_pin()
-            self._start_keepalive()
-
-            return True
-        except asyncio.CancelledError:
-            raise  # do not treat task cancellation as connection failure
-        except BleakError as err:
-            _LOGGER.error("Failed to connect to Octo bed: %s", err)
-            return False
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.error("Failed to connect to Octo bed: %s", err)
-            return False
+                _LOGGER.error("Failed to connect to Octo bed: %s", err)
+                return False
 
     async def connect_and_verify_pin(self) -> bool:
-        """Connect to the bed, send PIN, and verify acceptance via notification.
-        Returns True only if the bed sends PIN accepted; False on reject or timeout.
+        """Connect, send PIN, and verify acceptance via notification.
+
+        Returns True only if the bed sends PIN accepted; False on reject or
+        timeout. Used by the config flow.
         """
         try:
-            def _on_disconnect(client: BleakClient) -> None:
-                self._client = None
-
             self._intentional_disconnect = False
-            try:
-                self._client = await establish_connection(
-                    BleakClientWithServiceCache,
-                    self._device,
-                    "Octo Bed",
-                    disconnected_callback=_on_disconnect,
-                    timeout=15.0,
-                )
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.debug(
-                    "establish_connection failed, trying direct BleakClient: %s", err
-                )
-                direct = BleakClient(
-                    self._device, disconnected_callback=_on_disconnect
-                )
-                await direct.connect(timeout=15.0)
-                self._client = direct
-
-            _LOGGER.debug("Connected to Octo bed at %s", self._device.address)
-
-            try:
-                await self._client.get_services()
-            except Exception:  # noqa: BLE001
-                pass
+            await self._establish()
 
             pin_result: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
-
-            def _verify_handler(_char: BleakGATTCharacteristic, data: bytearray) -> None:
-                raw = bytes(data)
-                if pin_result.done():
-                    return
-                if raw == NOTIFY_PIN_ACCEPTED:
-                    pin_result.set_result(True)
-                elif raw == NOTIFY_PIN_REJECTED:
-                    pin_result.set_result(False)
-
-            await self._client.start_notify(COMMAND_CHAR_UUID, _verify_handler)
-            await self.send_pin()
+            self._pin_verify_future = pin_result
             try:
+                await self.send_pin()
                 result = await asyncio.wait_for(pin_result, 8.0)
             except asyncio.TimeoutError:
                 _LOGGER.warning("PIN verification timed out waiting for bed response")
                 result = False
             finally:
-                try:
-                    await self._client.stop_notify(COMMAND_CHAR_UUID)
-                except Exception:  # noqa: BLE001
-                    pass
+                self._pin_verify_future = None
 
             if not result:
-                self._intentional_disconnect = True
-                if self._client and self._client.is_connected:
-                    await self._client.disconnect()
-                self._client = None
+                await self.disconnect()
                 return False
 
             self._start_keepalive()
+            self._notify_connection_change(True)
             return True
-        except BleakError as err:
-            _LOGGER.error("Failed to connect to Octo bed: %s", err)
-            return False
+        except asyncio.CancelledError:
+            raise
         except Exception as err:  # noqa: BLE001
             _LOGGER.error("Failed to connect to Octo bed: %s", err)
             return False
+
+    _pin_verify_future: asyncio.Future[bool] | None = None
 
     async def disconnect(self) -> None:
         """Disconnect from the bed."""
         self._intentional_disconnect = True
         await self._stop_keepalive()
+        if self._reconnect_task and not self._reconnect_task.done():
+            self._reconnect_task.cancel()
         if self._client and self._client.is_connected:
             await self._client.disconnect()
         self._client = None
@@ -255,35 +356,54 @@ class OctoBedClient:
             return True
         if self._intentional_disconnect:
             return False
-        # Refresh device if resolver available (e.g. after disconnect)
-        if self._device_resolver:
-            fresh = await self._device_resolver()
-            if fresh:
-                self._device = fresh
         _LOGGER.info("Reconnecting to Octo bed at %s", self._device.address)
         return await self.connect()
+
+    # ------------------------------------------------------------ notifications
 
     def _notification_handler(
         self, characteristic: BleakGATTCharacteristic, data: bytearray
     ) -> None:
         """Handle notifications from the bed."""
-        _LOGGER.debug("Notification: %s", data.hex())
         raw = bytes(data)
-        # Check if PIN is required (keep-alive / re-auth)
-        # 40214400001b40 = periodic keep-alive, 40217f0000e040 = initial auth
+        _LOGGER.debug("Notification: %s", raw.hex())
+
+        # PIN verification result (config flow)
+        future = self._pin_verify_future
+        if future is not None and not future.done():
+            if raw == NOTIFY_PIN_ACCEPTED:
+                future.set_result(True)
+                return
+            if raw == NOTIFY_PIN_REJECTED:
+                future.set_result(False)
+                return
+
+        # PIN required (keep-alive request / initial auth)
         pin_required = (
-            (len(raw) >= 7 and raw[:7] == NOTIFY_PIN_REQUIRED[:7])
-            or raw == NOTIFY_PIN_REQUIRED_ALT
-        )
+            len(raw) >= 7 and raw[:7] == NOTIFY_PIN_REQUIRED[:7]
+        ) or raw == NOTIFY_PIN_REQUIRED_ALT
         if pin_required:
             _LOGGER.debug("PIN required, sending authentication")
             self._send_pin_async()
+            return
+
+        parsed = protocol.parse_packet(raw)
+        if parsed is None:
+            return
+        command, packet_data = parsed
+        if command == (0x21, 0x71):
+            self._handle_feature_response(packet_data)
+        elif command[0] == 0x11 and command[1] in (0x71, 0x72) and packet_data:
+            # CONFIG_SET/GET_DRIVEMODE response
+            self._synchro_active = packet_data[0] == protocol.DRIVEMODE_SYNC
 
     def _send_pin_async(self) -> None:
         """Send PIN asynchronously - called from notification handler."""
-        # Schedule on the event loop
         if self._client and self._client.is_connected:
-            asyncio.create_task(self._send_command(encode_pin(self._pin)))
+            # Keep a reference so the task is not garbage collected mid-flight
+            self._pin_task = asyncio.create_task(self.send_pin())
+
+    # ----------------------------------------------------------------- commands
 
     async def _send_command(self, data: bytes) -> bool:
         """Send raw command to the bed."""
@@ -292,9 +412,11 @@ class OctoBedClient:
             return False
 
         try:
-            # Prefer UUID writes (most reliable across backends)
             await self._client.write_gatt_char(COMMAND_CHAR_UUID, data, response=False)
-            _LOGGER.debug("Sent command: %s", data.hex())
+            if protocol.is_pin_packet(data):
+                _LOGGER.debug("Sent command: PIN authentication (masked)")
+            else:
+                _LOGGER.debug("Sent command: %s", data.hex())
             return True
         except BleakError as err:
             _LOGGER.error("Failed to send command: %s", err)
@@ -304,6 +426,10 @@ class OctoBedClient:
         """Send PIN authentication."""
         return await self._send_command(encode_pin(self._pin))
 
+    async def send_stop(self) -> bool:
+        """Send a single stop command to the bed (no task bookkeeping)."""
+        return await self._send_command(CMD_STOP)
+
     async def both_down(self) -> bool:
         """Send both sides down command."""
         return await self._send_command(CMD_BOTH_DOWN)
@@ -311,12 +437,6 @@ class OctoBedClient:
     async def both_up(self) -> bool:
         """Send both sides up command."""
         return await self._send_command(CMD_BOTH_UP)
-
-    async def both_up_continuous(self) -> bool:
-        """Send both sides up continuously."""
-        ok1 = await self.head_up_continuous()
-        ok2 = await self.feet_up()
-        return ok1 and ok2
 
     async def feet_down(self) -> bool:
         """Send feet down command."""
@@ -334,46 +454,67 @@ class OctoBedClient:
         """Send head up command."""
         return await self._send_command(CMD_HEAD_UP)
 
-    async def head_up_continuous(self) -> bool:
-        """Send head up continuously."""
-        return await self._send_command(CMD_HEAD_UP_CONTINUOUS)
+    async def recall_memory_preset(self, slot: int) -> bool:
+        """Recall a hardware memory preset (0-based slot)."""
+        if slot < 0 or slot >= self.memory_slot_count:
+            _LOGGER.warning("Invalid memory slot %d", slot)
+            return False
+        return await self._send_command(
+            protocol.build_packet(protocol.CMD_MOTOR_MEMPOS, [slot])
+        )
+
+    async def save_memory_preset(self, slot: int) -> bool:
+        """Save the current position to a hardware memory slot (0-based)."""
+        if slot < 0 or slot >= self.memory_slot_count:
+            _LOGGER.warning("Invalid memory slot %d", slot)
+            return False
+        return await self._send_command(
+            protocol.build_packet(protocol.CMD_CONFIG_SAVE_MOTORPOS, [slot])
+        )
+
+    async def set_synchro_mode(self, enabled: bool) -> bool:
+        """Set linked (sync) or independent (single) drive mode."""
+        mode = protocol.DRIVEMODE_SYNC if enabled else protocol.DRIVEMODE_SINGLE
+        ok = await self._send_command(
+            protocol.build_packet(protocol.CMD_CONFIG_SET_DRIVEMODE, [mode])
+        )
+        if ok:
+            self._synchro_active = enabled
+        return ok
+
+    # ------------------------------------------------------------- movement state
 
     def register_movement_task(self, task: asyncio.Task[None]) -> None:
         """Register a movement task so it can be cancelled when stop is called."""
         self._active_movement_tasks.add(task)
-        # Remove task when it completes
         task.add_done_callback(self._active_movement_tasks.discard)
 
     def register_active_movement(self, part: str, task: asyncio.Task[None]) -> None:
         """Register an active movement for a specific part (head, feet, or both).
+
         This will cancel any conflicting movements.
         """
-        # Cancel conflicting movements
         if part == "head":
-            # Cancel feet and both if they're active
             self._cancel_movement("feet")
             self._cancel_movement("both")
         elif part == "feet":
-            # Cancel head and both if they're active
             self._cancel_movement("head")
             self._cancel_movement("both")
         elif part == "both":
-            # Cancel head and feet if they're active
             self._cancel_movement("head")
             self._cancel_movement("feet")
-        
-        # Register this movement
+
         if part in self._active_movements:
             old_task = self._active_movements[part]
             if not old_task.done():
                 old_task.cancel()
-        
+
         self._active_movements[part] = task
-        
-        # Remove from active movements when task completes
+
         def cleanup(task: asyncio.Task[None]) -> None:
             if self._active_movements.get(part) == task:
                 self._active_movements.pop(part, None)
+
         task.add_done_callback(cleanup)
 
     def _cancel_movement(self, part: str) -> None:
@@ -382,22 +523,19 @@ class OctoBedClient:
             task = self._active_movements[part]
             if not task.done():
                 task.cancel()
-                try:
-                    # Wait briefly for cancellation to complete
-                    asyncio.create_task(self._wait_for_cancellation(task))
-                except Exception:  # noqa: BLE001
-                    pass
+                asyncio.create_task(self._wait_for_cancellation(task))
 
     async def _wait_for_cancellation(self, task: asyncio.Task[None]) -> None:
         """Wait for a task to be cancelled and send stop command."""
         try:
             await task
         except asyncio.CancelledError:
-            # Send stop command to bed when movement is cancelled
             try:
-                await self._send_command(CMD_STOP)
+                await self.send_stop()
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("Failed to send stop after cancelling movement", exc_info=True)
+
+    # --------------------------------------------------------------- calibration
 
     def _notify_calibration_state(self) -> None:
         """Notify listeners that calibration active state may have changed."""
@@ -419,14 +557,13 @@ class OctoBedClient:
         """Start calibration for head or feet: move that part up and start counting time."""
         if part not in ("head", "feet"):
             return
-        # Cancel any existing calibration
         if self._calibration_task and not self._calibration_task.done():
             self._calibration_task.cancel()
             try:
                 await self._calibration_task
             except asyncio.CancelledError:
                 pass
-            await self._send_command(CMD_STOP)
+            await self.send_stop()
         self._calibration_part = part
         self._calibration_start_time = time.monotonic()
         method = self.head_up if part == "head" else self.feet_up
@@ -456,14 +593,14 @@ class OctoBedClient:
                 await self._calibration_task
             except asyncio.CancelledError:
                 pass
-        await self._send_command(CMD_STOP)
+        await self.send_stop()
         self._calibration_part = None
         self._calibration_start_time = None
         self._calibration_task = None
         if part in self._active_movements:
             self._active_movements.pop(part, None)
         self._notify_calibration_state()
-        _LOGGER.info("Calibration complete for %s: %.1f seconds (100% travel)", part, duration)
+        _LOGGER.info("Calibration complete for %s: %.1f seconds (100%% travel)", part, duration)
         return (part, duration)
 
     def is_calibrating(self) -> bool:
@@ -505,7 +642,7 @@ class OctoBedClient:
             setter(int(round(100 * (1.0 - progress))))
             raise
         finally:
-            await self._send_command(CMD_STOP)
+            await self.send_stop()
             setter(0)
             self._calibration_completing = False
             self._calibration_returning_part = None
@@ -518,6 +655,8 @@ class OctoBedClient:
         if self._calibration_part is not None:
             return ("tracking", self._calibration_part)
         return ("idle", None)
+
+    # ------------------------------------------------------------------ position
 
     def is_connected(self) -> bool:
         """Return True if connected to the bed (Bluetooth proxy)."""
@@ -537,7 +676,6 @@ class OctoBedClient:
 
     def get_both_position(self) -> int:
         """Get current 'both' position (average of head and feet)."""
-        # Use average to represent the overall position when head and feet differ
         return int(round((self._head_position + self._feet_position) / 2.0))
 
     async def run_to_position(
@@ -570,7 +708,7 @@ class OctoBedClient:
                     )
                     await asyncio.sleep(interval)
             finally:
-                await self._send_command(CMD_STOP)
+                await self.send_stop()
                 self.set_head_position(head_target)
 
         # Move feet
@@ -589,7 +727,7 @@ class OctoBedClient:
                     )
                     await asyncio.sleep(interval)
             finally:
-                await self._send_command(CMD_STOP)
+                await self.send_stop()
                 self.set_feet_position(feet_target)
 
     def set_head_position(self, position: int) -> None:
@@ -614,7 +752,8 @@ class OctoBedClient:
 
     def register_position_callback(self, callback: Callable[[str, int], None]) -> None:
         """Register a callback to be notified when position changes.
-        Callback receives (part: str, position: int) where part is 'head', 'feet', or 'both'.
+
+        Callback receives (part: str, position: int) where part is 'head' or 'feet'.
         """
         self._position_callbacks.append(callback)
 
@@ -628,7 +767,6 @@ class OctoBedClient:
 
     async def stop(self) -> bool:
         """Send stop command and cancel all active movement tasks."""
-        # Cancel all active movement tasks
         for task in list(self._active_movement_tasks):
             if not task.done():
                 task.cancel()
@@ -636,9 +774,10 @@ class OctoBedClient:
                     await task
                 except asyncio.CancelledError:
                     pass
-        
-        # Send stop command to the bed
-        return await self._send_command(CMD_STOP)
+
+        return await self.send_stop()
+
+    # --------------------------------------------------------------------- light
 
     async def light_on(self) -> bool:
         """Turn bed light on."""
@@ -661,3 +800,14 @@ class OctoBedClient:
             await asyncio.sleep(0.1)
             await self._send_command(CMD_LIGHT_OFF)
         return ok
+
+    async def set_light_color_rgbw(self, rgbw: tuple[int, int, int, int]) -> bool:
+        """Set RGBW light color (beds with CAP_LIGHT_RGBWI only)."""
+        r, g, b, w = (max(0, min(255, v)) for v in rgbw)
+        value_type = self._rgbwi_value_type if self._rgbwi_value_type is not None else 0x05
+        return await self._send_command(
+            protocol.build_packet(
+                protocol.CMD_SYSTEM_SET_CAPS,
+                [0x00, 0x01, 0x04, 0x00, 0x01, 0x01, value_type, r, g, b, w, 0xFF],
+            )
+        )

@@ -58,6 +58,12 @@ async def async_setup_entry(
     buttons: list[ButtonEntity] = [
         OctoBedButton(client, "stop", "Stop", "mdi:stop", device_info, uid),
     ]
+
+    # Hardware memory presets (detected via feature discovery)
+    for slot in range(client.memory_slot_count):
+        buttons.append(OctoBedPresetButton(client, slot, device_info, uid))
+        buttons.append(OctoBedSavePresetButton(client, slot, device_info, uid))
+
     if entry.options.get(CONF_SHOW_CALIBRATION_BUTTONS, True):
         buttons.extend([
             OctoBedCalibrateButton(client, entry, "calibrate_head", "Calibrate head", "mdi:arrow-up-bold", device_info, uid, calibration_disabled_paired),
@@ -124,24 +130,110 @@ class OctoBedButton(ButtonEntity):
         self._attr_icon = icon
         self._attr_unique_id = f"{unique_id_prefix}_{action}"
         self._attr_device_info = device_info
-        client.register_calibration_state_callback(self._on_calibration_state_changed)
+
+    async def async_added_to_hass(self) -> None:
+        """Register for calibration and connection updates."""
+        await super().async_added_to_hass()
+        self._client.register_calibration_state_callback(self._on_calibration_state_changed)
+        self._client.register_connection_callback(self._on_connection_changed)
 
     @callback
     def _on_calibration_state_changed(self) -> None:
         """Update availability when calibration state changes."""
-        self._attr_available = not self._client.is_calibration_active()
+        self.async_write_ha_state()
+
+    @callback
+    def _on_connection_changed(self, connected: bool) -> None:
+        """Update availability when the connection state changes."""
         self.async_write_ha_state()
 
     @property
     def available(self) -> bool:
-        """Return True if calibration is not active (Stop allowed only when not calibrating)."""
-        return not self._client.is_calibration_active()
+        """Available when connected and no calibration is active."""
+        return self._client.is_connected() and not self._client.is_calibration_active()
 
     async def async_press(self) -> None:
         """Press the button."""
         method = getattr(self._client, self._action, None)
         if method and callable(method):
             await method()
+
+
+class OctoBedPresetButton(ButtonEntity):
+    """Recall a hardware memory preset stored in the bed itself."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bed-clock"
+
+    def __init__(
+        self,
+        client: OctoBedClient,
+        slot: int,
+        device_info: DeviceInfo,
+        unique_id_prefix: str,
+    ) -> None:
+        """Initialize the preset button."""
+        self._client = client
+        self._slot = slot
+        self._attr_name = f"Preset {slot + 1}"
+        self._attr_unique_id = f"{unique_id_prefix}_preset_{slot + 1}"
+        self._attr_device_info = device_info
+
+    async def async_added_to_hass(self) -> None:
+        """Register for connection updates."""
+        await super().async_added_to_hass()
+        self._client.register_connection_callback(self._on_connection_changed)
+
+    @callback
+    def _on_connection_changed(self, connected: bool) -> None:
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        return self._client.is_connected() and not self._client.is_calibration_active()
+
+    async def async_press(self) -> None:
+        """Recall the preset. The dead-reckoned position may drift afterwards."""
+        await self._client.recall_memory_preset(self._slot)
+
+
+class OctoBedSavePresetButton(ButtonEntity):
+    """Save the current position to a hardware memory slot."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:content-save"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        client: OctoBedClient,
+        slot: int,
+        device_info: DeviceInfo,
+        unique_id_prefix: str,
+    ) -> None:
+        """Initialize the save preset button."""
+        self._client = client
+        self._slot = slot
+        self._attr_name = f"Save preset {slot + 1}"
+        self._attr_unique_id = f"{unique_id_prefix}_save_preset_{slot + 1}"
+        self._attr_device_info = device_info
+
+    async def async_added_to_hass(self) -> None:
+        """Register for connection updates."""
+        await super().async_added_to_hass()
+        self._client.register_connection_callback(self._on_connection_changed)
+
+    @callback
+    def _on_connection_changed(self, connected: bool) -> None:
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        return self._client.is_connected() and not self._client.is_calibration_active()
+
+    async def async_press(self) -> None:
+        """Save the current position to this slot."""
+        await self._client.save_memory_preset(self._slot)
 
 
 class OctoBedCalibrateButton(ButtonEntity):
@@ -171,7 +263,11 @@ class OctoBedCalibrateButton(ButtonEntity):
         self._attr_device_info = device_info
         self._part = "head" if "head" in action else "feet"
         self._disabled_when_paired = disabled_when_paired
-        client.register_calibration_state_callback(self._on_calibration_state_changed)
+
+    async def async_added_to_hass(self) -> None:
+        """Register for calibration state updates."""
+        await super().async_added_to_hass()
+        self._client.register_calibration_state_callback(self._on_calibration_state_changed)
 
     @callback
     def _on_calibration_state_changed(self) -> None:
@@ -212,7 +308,11 @@ class OctoBedCompleteCalibrationButton(ButtonEntity):
         self._attr_device_info = device_info
         self._attr_unique_id = f"{unique_id_prefix}_complete_calibration"
         self._disabled_when_paired = disabled_when_paired
-        client.register_calibration_state_callback(self._on_calibration_state_changed)
+
+    async def async_added_to_hass(self) -> None:
+        """Register for calibration state updates."""
+        await super().async_added_to_hass()
+        self._client.register_calibration_state_callback(self._on_calibration_state_changed)
 
     @callback
     def _on_calibration_state_changed(self) -> None:
@@ -281,11 +381,11 @@ class OctoBedSyncToOtherButton(ButtonEntity):
         self._other_entry_id = other_entry_id
         self._other_title = other_title
         self._other_position_callback_registered = False
-        client.register_calibration_state_callback(self._on_calibration_state_changed)
 
     async def async_added_to_hass(self) -> None:
         """Register for position updates on both beds so availability stays in sync."""
         await super().async_added_to_hass()
+        self._client.register_calibration_state_callback(self._on_calibration_state_changed)
         domain_data = self.hass.data.get(DOMAIN) or {}
         other_client = domain_data.get(self._other_entry_id)
         if other_client is not None:
@@ -425,11 +525,11 @@ class OctoBedSyncToBedButton(ButtonEntity):
         self._attr_name = f"Sync to {source_title} position"
         self._source_entry_id = source_entry_id
         self._source_title = source_title
-        client.register_calibration_state_callback(self._on_calibration_state_changed)
 
     async def async_added_to_hass(self) -> None:
         """Register for position updates on both member beds so availability stays in sync."""
         await super().async_added_to_hass()
+        self._client.register_calibration_state_callback(self._on_calibration_state_changed)
         domain_data = self.hass.data.get(DOMAIN) or {}
         member_ids = self._entry.data.get(CONF_MEMBER_ENTRY_IDS) or []
         for eid in member_ids:

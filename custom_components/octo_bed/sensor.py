@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
@@ -76,7 +75,11 @@ class OctoBedCalibrationStatusSensor(SensorEntity):
         self._attr_device_info = device_info
         self._attr_unique_id = f"{unique_id_prefix}_calibration_status"
         self._unavailable_when_paired = unavailable_when_paired
-        client.register_calibration_state_callback(self._on_calibration_state_changed)
+
+    async def async_added_to_hass(self) -> None:
+        """Register for calibration state updates."""
+        await super().async_added_to_hass()
+        self._client.register_calibration_state_callback(self._on_calibration_state_changed)
 
     @callback
     def _on_calibration_state_changed(self) -> None:
@@ -172,6 +175,10 @@ class OctoBedHeadPositionSensor(OctoBedDiagnosticSensor):
             "Head position",
             "mdi:arrow-up-down",
         )
+
+    async def async_added_to_hass(self) -> None:
+        """Register for position updates."""
+        await super().async_added_to_hass()
         self._client.register_position_callback(self._on_position_changed)
 
     @callback
@@ -201,6 +208,10 @@ class OctoBedFeetPositionSensor(OctoBedDiagnosticSensor):
             "Feet position",
             "mdi:arrow-up-down",
         )
+
+    async def async_added_to_hass(self) -> None:
+        """Register for position updates."""
+        await super().async_added_to_hass()
         self._client.register_position_callback(self._on_position_changed)
 
     @callback
@@ -219,8 +230,7 @@ class OctoBedConnectionStatusSensor(OctoBedDiagnosticSensor):
     """Sensor exposing connection status with Bluetooth proxy."""
 
     _attr_icon = "mdi:bluetooth-connect"
-    _attr_should_poll = True
-    _attr_update_interval = timedelta(seconds=30)
+    _attr_should_poll = False
 
     def __init__(self, client: OctoBedClient, device_info: DeviceInfo, unique_id_prefix: str) -> None:
         """Initialize the connection status sensor."""
@@ -232,6 +242,16 @@ class OctoBedConnectionStatusSensor(OctoBedDiagnosticSensor):
             "Connection status",
             "mdi:bluetooth-connect",
         )
+
+    async def async_added_to_hass(self) -> None:
+        """Register for connection state updates."""
+        await super().async_added_to_hass()
+        self._client.register_connection_callback(self._on_connection_changed)
+
+    @callback
+    def _on_connection_changed(self, connected: bool) -> None:
+        """Update state when the connection state changes."""
+        self.async_write_ha_state()
 
     @property
     def native_value(self) -> str:

@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from types import MappingProxyType
 
 from homeassistant.components import bluetooth
 from homeassistant.config_entries import ConfigEntry, SOURCE_IMPORT
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryNotReady
 
 from .const import (
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_FULL_TRAVEL_SECONDS,
+    CONF_GROUP_OPTIONS,
     CONF_HEAD_FULL_TRAVEL_SECONDS,
     CONF_IS_GROUP,
     CONF_MEMBER_ENTRY_IDS,
@@ -31,6 +32,7 @@ PLATFORMS: list[Platform] = [
     Platform.BUTTON,
     Platform.SWITCH,
     Platform.COVER,
+    Platform.LIGHT,
     Platform.SENSOR,
 ]
 
@@ -48,17 +50,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         domain_data = hass.data.get(DOMAIN) or {}
         missing = [eid for eid in member_ids if eid not in domain_data]
         if missing:
-            _LOGGER.debug(
-                "Group entry waiting for members %s; will retry shortly",
-                missing,
+            raise ConfigEntryNotReady(
+                f"Waiting for member beds to finish setup: {missing}"
             )
-
-            async def _retry_group_setup() -> None:
-                await asyncio.sleep(10)
-                await hass.config_entries.async_reload(entry.entry_id)
-
-            hass.async_create_task(_retry_group_setup())
-            return False
         clients = [hass.data[DOMAIN][eid] for eid in member_ids]
         hass.data[DOMAIN][entry.entry_id] = GroupOctoBedClient(clients)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -86,8 +80,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     if not bleak_device:
-        _LOGGER.error("Could not find Octo bed at address %s", address)
-        return False
+        raise ConfigEntryNotReady(
+            f"Could not find Octo bed at address {address}; "
+            "ensure it is powered and in range of a Bluetooth adapter/proxy"
+        )
 
     async def _get_device():
         return bluetooth.async_ble_device_from_address(
@@ -97,87 +93,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     client = OctoBedClient(
         bleak_device,
         pin,
-        disconnect_callback=lambda: _LOGGER.warning("Octo bed disconnected"),
+        disconnect_callback=lambda: _LOGGER.warning(
+            "Octo bed %s disconnected; reconnecting in background", address
+        ),
         device_resolver=_get_device,
     )
 
     try:
         if not await client.connect():
-            _LOGGER.error("Failed to connect to Octo bed")
-            return False
+            raise ConfigEntryNotReady(f"Failed to connect to Octo bed at {address}")
     except asyncio.CancelledError:
         raise  # allow HA to handle setup cancellation (e.g. reload during connect)
 
+    # Best effort: query bed capabilities (memory presets, synchro, RGBW light)
+    await client.discover_features()
+
     hass.data[DOMAIN][entry.entry_id] = client
 
-    # After adding 2nd bed with "pair": create group entry once both members are set up
+    # After adding 2nd bed with "pair": create the group entry via an import flow
     pair_with = entry.data.get(CONF_PAIR_WITH_ENTRY_ID)
     if pair_with:
-        member_ids = [pair_with, entry.entry_id]
-        other = hass.config_entries.async_get_entry(pair_with)
-        if other and not other.data.get(CONF_IS_GROUP):
-            other_entry = hass.config_entries.async_get_entry(pair_with)
-            group_options = dict(other_entry.options or {}) if other_entry else {}
-            if not group_options:
-                group_options = {
-                    CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
-                    CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
-                    CONF_SHOW_CALIBRATION_BUTTONS: False,
-                }
-            # Unify calibration: set this bed's head/feet travel to match the other (group) so both are equal
-            head = group_options.get(CONF_HEAD_FULL_TRAVEL_SECONDS, group_options.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
-            feet = group_options.get(CONF_FEET_FULL_TRAVEL_SECONDS, group_options.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
-            group_options[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
-            group_options[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
-            current_opts = dict(entry.options or {})
-            current_opts[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
-            current_opts[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
-            if CONF_SHOW_CALIBRATION_BUTTONS in group_options:
-                current_opts[CONF_SHOW_CALIBRATION_BUTTONS] = group_options[CONF_SHOW_CALIBRATION_BUTTONS]
-            hass.config_entries.async_update_entry(entry, options=current_opts)
-            group_data = {
-                CONF_IS_GROUP: True,
-                CONF_MEMBER_ENTRY_IDS: member_ids,
-            }
-            try:
-                group_entry = ConfigEntry(
-                    version=1,
-                    minor_version=0,
-                    domain=DOMAIN,
-                    title="Both beds",
-                    data=group_data,
-                    options=group_options,
-                    source=SOURCE_IMPORT,
-                    unique_id=f"group_{pair_with}_{entry.entry_id}",
-                    discovery_keys=MappingProxyType({}),
-                    subentries_data=None,
-                )
-            except TypeError:
-                group_entry = ConfigEntry(
-                    version=1,
-                    domain=DOMAIN,
-                    title="Both beds",
-                    data=group_data,
-                    options=group_options,
-                    source=SOURCE_IMPORT,
-                    unique_id=f"group_{pair_with}_{entry.entry_id}",
-                )
-
-            async def _add_group_when_ready() -> None:
-                domain_data = hass.data.get(DOMAIN) or {}
-                for _ in range(60):  # up to 30 s at 0.5 s interval
-                    if all(eid in domain_data for eid in member_ids):
-                        await hass.config_entries.async_add(group_entry)
-                        break
-                    await asyncio.sleep(0.5)
-                    domain_data = hass.data.get(DOMAIN) or {}
-                else:
-                    _LOGGER.warning(
-                        "Group entry not added: members %s not ready in time",
-                        member_ids,
-                    )
-
-            hass.async_create_task(_add_group_when_ready())
+        _async_start_group_flow(hass, entry, pair_with)
         new_data = {k: v for k, v in entry.data.items() if k != CONF_PAIR_WITH_ENTRY_ID}
         hass.config_entries.async_update_entry(entry, data=new_data)
 
@@ -186,19 +122,60 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+def _async_start_group_flow(
+    hass: HomeAssistant, entry: ConfigEntry, pair_with: str
+) -> None:
+    """Start an import flow that creates the 'Both beds' group entry."""
+    other = hass.config_entries.async_get_entry(pair_with)
+    if not other or other.data.get(CONF_IS_GROUP):
+        return
+
+    group_options = dict(other.options or {})
+    if not group_options:
+        group_options = {
+            CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
+            CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
+            CONF_SHOW_CALIBRATION_BUTTONS: False,
+        }
+    # Unify calibration: both beds get the same head/feet travel as the group
+    head = group_options.get(
+        CONF_HEAD_FULL_TRAVEL_SECONDS,
+        group_options.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS),
+    )
+    feet = group_options.get(
+        CONF_FEET_FULL_TRAVEL_SECONDS,
+        group_options.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS),
+    )
+    group_options[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
+    group_options[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
+    current_opts = dict(entry.options or {})
+    current_opts[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
+    current_opts[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
+    if CONF_SHOW_CALIBRATION_BUTTONS in group_options:
+        current_opts[CONF_SHOW_CALIBRATION_BUTTONS] = group_options[CONF_SHOW_CALIBRATION_BUTTONS]
+    hass.config_entries.async_update_entry(entry, options=current_opts)
+
+    hass.async_create_task(
+        hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": SOURCE_IMPORT},
+            data={
+                CONF_IS_GROUP: True,
+                CONF_MEMBER_ENTRY_IDS: [pair_with, entry.entry_id],
+                CONF_GROUP_OPTIONS: group_options,
+            },
+        )
+    )
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    stored = hass.data[DOMAIN].get(entry.entry_id)
-    if isinstance(stored, GroupOctoBedClient):
-        pass
-    elif stored is not None:
-        await stored.disconnect()
-
-    unload_ok = await hass.config_entries.async_unload_platforms(
-        entry, PLATFORMS
-    )
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
+        stored = hass.data[DOMAIN].pop(entry.entry_id, None)
+        # Group client disconnect is a no-op; member beds own their connections
+        if stored is not None:
+            await stored.disconnect()
 
     return unload_ok
 

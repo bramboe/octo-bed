@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Callable
+from typing import Any, Callable
 
 from .octo_bed_client import OctoBedClient
 
@@ -14,15 +14,14 @@ class GroupOctoBedClient:
     def __init__(self, clients: list[OctoBedClient]) -> None:
         self._clients = list(clients)
 
-    def _first(self) -> OctoBedClient:
-        return self._clients[0]
-
     async def connect(self) -> bool:
         results = await asyncio.gather(*[c.connect() for c in self._clients])
         return all(results)
 
     async def disconnect(self) -> None:
-        await asyncio.gather(*[c.disconnect() for c in self._clients])
+        # Member clients belong to their own config entries; the group never
+        # owns the connections, so disconnecting the group is a no-op.
+        return
 
     async def ensure_connected(self) -> bool:
         results = await asyncio.gather(*[c.ensure_connected() for c in self._clients])
@@ -33,6 +32,41 @@ class GroupOctoBedClient:
 
     def get_device_address(self) -> str:
         return ",".join(c.get_device_address() for c in self._clients)
+
+    # ------------------------------------------------------------------ features
+
+    @property
+    def memory_slot_count(self) -> int:
+        """Memory presets only when every member bed supports them."""
+        if not self._clients:
+            return 0
+        return min(c.memory_slot_count for c in self._clients)
+
+    @property
+    def has_synchro(self) -> bool:
+        """Synchro mode is configured per bed, never on the group."""
+        return False
+
+    @property
+    def has_rgbwi_light(self) -> bool:
+        return all(c.has_rgbwi_light for c in self._clients)
+
+    def get_feature_summary(self) -> dict[str, Any]:
+        return {"members": [c.get_feature_summary() for c in self._clients]}
+
+    async def recall_memory_preset(self, slot: int) -> bool:
+        results = await asyncio.gather(
+            *[c.recall_memory_preset(slot) for c in self._clients]
+        )
+        return all(results)
+
+    async def save_memory_preset(self, slot: int) -> bool:
+        results = await asyncio.gather(
+            *[c.save_memory_preset(slot) for c in self._clients]
+        )
+        return all(results)
+
+    # ------------------------------------------------------------------ position
 
     def get_head_position(self) -> int:
         if not self._clients:
@@ -81,6 +115,10 @@ class GroupOctoBedClient:
         for c in self._clients:
             c.register_calibration_state_callback(callback)
 
+    def register_connection_callback(self, callback: Callable[[bool], None]) -> None:
+        for c in self._clients:
+            c.register_connection_callback(callback)
+
     def is_calibration_active(self) -> bool:
         return any(c.is_calibration_active() for c in self._clients)
 
@@ -93,6 +131,8 @@ class GroupOctoBedClient:
             if state != "idle":
                 return (state, part)
         return ("idle", None)
+
+    # ------------------------------------------------------------------ movement
 
     async def head_up(self) -> bool:
         results = await asyncio.gather(*[c.head_up() for c in self._clients])
@@ -114,20 +154,16 @@ class GroupOctoBedClient:
         results = await asyncio.gather(*[c.both_up() for c in self._clients])
         return all(results)
 
-    async def both_up_continuous(self) -> bool:
-        results = await asyncio.gather(*[c.both_up_continuous() for c in self._clients])
-        return all(results)
-
-    async def head_up_continuous(self) -> bool:
-        results = await asyncio.gather(*[c.head_up_continuous() for c in self._clients])
-        return all(results)
-
     async def both_down(self) -> bool:
         results = await asyncio.gather(*[c.both_down() for c in self._clients])
         return all(results)
 
     async def stop(self) -> bool:
         results = await asyncio.gather(*[c.stop() for c in self._clients])
+        return all(results)
+
+    async def send_stop(self) -> bool:
+        results = await asyncio.gather(*[c.send_stop() for c in self._clients])
         return all(results)
 
     def register_movement_task(self, task: asyncio.Task[None]) -> None:
@@ -144,6 +180,12 @@ class GroupOctoBedClient:
 
     async def light_off(self) -> bool:
         results = await asyncio.gather(*[c.light_off() for c in self._clients])
+        return all(results)
+
+    async def set_light_color_rgbw(self, rgbw: tuple[int, int, int, int]) -> bool:
+        results = await asyncio.gather(
+            *[c.set_light_color_rgbw(rgbw) for c in self._clients]
+        )
         return all(results)
 
     # Calibration on group: run on both beds so they stay in sync
@@ -195,7 +237,3 @@ class GroupOctoBedClient:
                 for c in self._clients
             ]
         )
-
-    async def _send_command(self, data: bytes) -> bool:
-        results = await asyncio.gather(*[c._send_command(data) for c in self._clients])
-        return all(results)

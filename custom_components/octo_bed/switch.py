@@ -1,4 +1,4 @@
-"""Switch entities for Octo Bed (light + movement control)."""
+"""Switch entities for Octo Bed (movement control + synchro mode)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,9 @@ from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -19,7 +21,6 @@ from .const import (
     CONF_HEAD_FULL_TRAVEL_SECONDS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
-    CMD_STOP,
 )
 from .octo_bed_client import OctoBedClient
 
@@ -34,6 +35,13 @@ async def async_setup_entry(
     """Set up Octo Bed switches from a config entry."""
     client: OctoBedClient = hass.data[DOMAIN][entry.entry_id]
     uid = entry.unique_id or entry.entry_id
+
+    # The under-bed light moved to the light platform; drop the old switch entity
+    ent_reg = er.async_get(hass)
+    old_light = ent_reg.async_get_entity_id("switch", DOMAIN, f"{uid}_light")
+    if old_light:
+        _LOGGER.info("Removing legacy light switch entity %s (now a light entity)", old_light)
+        ent_reg.async_remove(old_light)
 
     device_info = DeviceInfo(
         identifiers={(DOMAIN, uid)},
@@ -67,52 +75,55 @@ async def async_setup_entry(
         OctoBedMovementSwitch(
             client, "feet_down", "Feet Down", "mdi:arrow-down", device_info, feet_travel, uid
         ),
-        OctoBedLightSwitch(client, device_info, uid),
     ]
+
+    # Linked/synchro drive mode (only on beds that report the capability)
+    if client.has_synchro:
+        entities.append(OctoBedSynchroSwitch(client, device_info, uid))
 
     async_add_entities(entities)
 
 
-class OctoBedLightSwitch(SwitchEntity):
-    """Representation of Octo Bed under-bed light switch."""
+class OctoBedSynchroSwitch(SwitchEntity):
+    """Toggle the bed's linked (synchro) drive mode."""
 
     _attr_has_entity_name = True
-    _attr_name = "Light"
-    _attr_icon = "mdi:lightbulb"
+    _attr_name = "Synchro mode"
+    _attr_icon = "mdi:link-variant"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_registry_enabled_default = False
 
-    def __init__(self, client: OctoBedClient, device_info: DeviceInfo, unique_id_prefix: str) -> None:
-        """Initialize the light switch."""
+    def __init__(
+        self, client: OctoBedClient, device_info: DeviceInfo, unique_id_prefix: str
+    ) -> None:
+        """Initialize the synchro switch."""
         self._client = client
         self._attr_device_info = device_info
-        self._attr_unique_id = f"{unique_id_prefix}_light"
-        self._is_on: bool | None = None  # Unknown state initially
-        client.register_calibration_state_callback(self._on_calibration_state_changed)
+        self._attr_unique_id = f"{unique_id_prefix}_synchro"
+
+    async def async_added_to_hass(self) -> None:
+        """Register for connection updates."""
+        await super().async_added_to_hass()
+        self._client.register_connection_callback(self._on_connection_changed)
 
     @callback
-    def _on_calibration_state_changed(self) -> None:
-        """Update availability when calibration state changes."""
+    def _on_connection_changed(self, connected: bool) -> None:
         self.async_write_ha_state()
 
     @property
     def available(self) -> bool:
-        """Available only when no calibration is active."""
-        return not self._client.is_calibration_active()
+        return self._client.is_connected()
 
     @property
     def is_on(self) -> bool | None:
-        """Return true if the light is on."""
-        return self._is_on
+        return self._client.synchro_active
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the light on."""
-        if await self._client.light_on():
-            self._is_on = True
+        if await self._client.set_synchro_mode(True):
             self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the light off."""
-        if await self._client.light_off():
-            self._is_on = False
+        if await self._client.set_synchro_mode(False):
             self.async_write_ha_state()
 
 
@@ -120,6 +131,7 @@ class OctoBedMovementSwitch(SwitchEntity):
     """Representation of an Octo Bed movement switch."""
 
     _attr_has_entity_name = True
+    _attr_assumed_state = True
 
     def __init__(
         self,
@@ -141,17 +153,27 @@ class OctoBedMovementSwitch(SwitchEntity):
         self._is_on: bool = False
         self._full_travel_seconds = full_travel_seconds
         self._task: asyncio.Task[None] | None = None
-        client.register_calibration_state_callback(self._on_calibration_state_changed)
+
+    async def async_added_to_hass(self) -> None:
+        """Register for calibration and connection updates."""
+        await super().async_added_to_hass()
+        self._client.register_calibration_state_callback(self._on_calibration_state_changed)
+        self._client.register_connection_callback(self._on_connection_changed)
 
     @callback
     def _on_calibration_state_changed(self) -> None:
         """Update availability when calibration state changes."""
         self.async_write_ha_state()
 
+    @callback
+    def _on_connection_changed(self, connected: bool) -> None:
+        """Update availability when the connection state changes."""
+        self.async_write_ha_state()
+
     @property
     def available(self) -> bool:
-        """Available only when no calibration is active."""
-        return not self._client.is_calibration_active()
+        """Available when connected and no calibration is active."""
+        return self._client.is_connected() and not self._client.is_calibration_active()
 
     @property
     def is_on(self) -> bool:
@@ -168,7 +190,7 @@ class OctoBedMovementSwitch(SwitchEntity):
 
         self._task = asyncio.create_task(self._movement_loop())
         self._client.register_movement_task(self._task)
-        
+
         # Register which part is moving to prevent conflicts
         if "both" in self._action:
             self._client.register_active_movement("both", self._task)
@@ -192,71 +214,54 @@ class OctoBedMovementSwitch(SwitchEntity):
         self.async_write_ha_state()
 
     async def _movement_loop(self) -> None:
-        """Continuously send movement commands until switched off or full travel reached. Same for single bed and both-bed (group sends same command to both)."""
+        """Continuously send movement commands until switched off or full travel reached."""
         method = getattr(self._client, self._action, None)
         if not method or not callable(method):
             _LOGGER.error("Unknown movement action %s", self._action)
             return
 
-        # Determine which part we're moving and get current position
         going_up = "up" in self._action
         if "both" in self._action:
             start_position = self._client.get_both_position()
-            target_position = 100 if going_up else 0
             position_setter = self._client.set_both_position
         elif "head" in self._action:
             start_position = self._client.get_head_position()
-            target_position = 100 if going_up else 0
             position_setter = self._client.set_head_position
-        elif "feet" in self._action:
+        else:  # feet
             start_position = self._client.get_feet_position()
-            target_position = 100 if going_up else 0
             position_setter = self._client.set_feet_position
-        else:
-            # Unknown action, can't track position
-            start_position = 0
-            target_position = 100 if going_up else 0
-            position_setter = None
-        
+
+        target_position = 100 if going_up else 0
         position_delta = target_position - start_position
         end_time = time.monotonic() + self._full_travel_seconds
         start_time = time.monotonic()
         cancelled = False
         try:
             while time.monotonic() < end_time:
-                # Check if this movement was cancelled due to conflict
                 if self._task and self._task.cancelled():
                     cancelled = True
                     break
                 await method()
-                
-                # Update position based on elapsed time
-                if position_setter:
-                    elapsed = time.monotonic() - start_time
-                    progress = min(1.0, elapsed / self._full_travel_seconds)
-                    new_position = int(round(start_position + position_delta * progress))
-                    position_setter(new_position)
-                
-                await asyncio.sleep(0.1)
-        except asyncio.CancelledError:
-            # Turned off by user or stop button
-            cancelled = True
-        finally:
-            # Update position based on how far we got
-            if position_setter:
+
                 elapsed = time.monotonic() - start_time
                 progress = min(1.0, elapsed / self._full_travel_seconds)
-                final_position = int(round(start_position + position_delta * progress))
-                position_setter(final_position)
-            
+                position_setter(int(round(start_position + position_delta * progress)))
+
+                await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            cancelled = True
+        finally:
+            elapsed = time.monotonic() - start_time
+            progress = min(1.0, elapsed / self._full_travel_seconds)
+            position_setter(int(round(start_position + position_delta * progress)))
+
             # If we reached full-travel time (not cancelled), send stop command.
             if not cancelled:
                 try:
-                    await self._client._send_command(CMD_STOP)
+                    await self._client.send_stop()
                 except Exception:  # noqa: BLE001
                     _LOGGER.debug("Failed to send stop after switch move", exc_info=True)
 
-            # Reset state when task completes
             self._is_on = False
             self._task = None
             self.async_write_ha_state()

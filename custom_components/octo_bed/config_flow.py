@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from types import MappingProxyType
 from typing import Any
 
 import voluptuous as vol
@@ -11,13 +10,23 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
-from homeassistant.config_entries import ConfigEntry, SOURCE_IMPORT
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+)
+
+try:  # HA 2024.4+
+    from homeassistant.config_entries import ConfigFlowResult
+except ImportError:  # pragma: no cover - older cores
+    from homeassistant.data_entry_flow import FlowResult as ConfigFlowResult
 
 from .const import (
     CONF_FEET_FULL_TRAVEL_SECONDS,
     CONF_FULL_TRAVEL_SECONDS,
+    CONF_GROUP_OPTIONS,
     CONF_HEAD_FULL_TRAVEL_SECONDS,
     CONF_IS_GROUP,
     CONF_MEMBER_ENTRY_IDS,
@@ -31,8 +40,7 @@ from .octo_bed_client import OctoBedClient
 
 _LOGGER = logging.getLogger(__name__)
 
-# Octo bed peripheral address from captures - can also discover by name
-OCTO_BED_NAMES = ("Octo", "OCTO", "octo")
+OCTO_BED_NAMES = ("Octo", "OCTO", "octo", "RC2")
 
 
 def format_address(address: str) -> str:
@@ -49,7 +57,7 @@ def _is_octo_bed(info: BluetoothServiceInfoBleak) -> bool:
     return False
 
 
-def _get_related_entry_ids(hass: HomeAssistant, entry: config_entries.ConfigEntry) -> list[str]:
+def _get_related_entry_ids(hass: HomeAssistant, entry: ConfigEntry) -> list[str]:
     """Return entry IDs that share the same pair (this entry + group + other member if paired)."""
     entry_id = entry.entry_id
     if entry.data.get(CONF_IS_GROUP):
@@ -73,10 +81,15 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Initialize the config flow."""
         self._discovery_info: BluetoothServiceInfoBleak | None = None
         self._pair_with_entry_id: str | None = None
+        self._pin_validated = False
+        self._address: str | None = None
+        self._pin: str | None = None
+        self._device_name: str = ""
+        self._other_beds: list[ConfigEntry] | None = None
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the bluetooth discovery step."""
         await self.async_set_unique_id(format_address(discovery_info.address))
         self._abort_if_unique_id_configured()
@@ -88,9 +101,32 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }
         return await self.async_step_confirm()
 
+    async def async_step_import(
+        self, import_data: dict[str, Any]
+    ) -> ConfigFlowResult:
+        """Create the internal 'Both beds' group entry (started by the integration)."""
+        if not import_data or not import_data.get(CONF_IS_GROUP):
+            return self.async_abort(reason="not_supported")
+        member_ids = list(import_data.get(CONF_MEMBER_ENTRY_IDS) or [])
+        if len(member_ids) < 2:
+            return self.async_abort(reason="need_two_beds")
+        member_set = set(member_ids)
+        for e in self.hass.config_entries.async_entries(DOMAIN):
+            if not e.data.get(CONF_IS_GROUP):
+                continue
+            if set(e.data.get(CONF_MEMBER_ENTRY_IDS) or []) == member_set:
+                return self.async_abort(reason="already_paired")
+        await self.async_set_unique_id(f"group_{'_'.join(sorted(member_ids))}")
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(
+            title="Both beds",
+            data={CONF_IS_GROUP: True, CONF_MEMBER_ENTRY_IDS: member_ids},
+            options=dict(import_data.get(CONF_GROUP_OPTIONS) or {}),
+        )
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the user step: choose how to add or set up an Octo bed."""
         if user_input is not None:
             method = user_input.get("method")
@@ -125,7 +161,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_pair_existing(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Create a 'Both beds' device from two existing beds."""
         non_group = [
             e for e in self.hass.config_entries.async_entries(DOMAIN)
@@ -165,6 +201,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             existing = set(e.data.get(CONF_MEMBER_ENTRY_IDS) or [])
             if existing == member_set:
                 return self.async_abort(reason="already_paired")
+
         group_options = dict(entry1.options or {})
         if not group_options:
             group_options = {
@@ -173,8 +210,14 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_SHOW_CALIBRATION_BUTTONS: False,
             }
         # Unify calibration: ensure both beds have the same head/feet travel as the group
-        head = group_options.get(CONF_HEAD_FULL_TRAVEL_SECONDS, group_options.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
-        feet = group_options.get(CONF_FEET_FULL_TRAVEL_SECONDS, group_options.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
+        head = group_options.get(
+            CONF_HEAD_FULL_TRAVEL_SECONDS,
+            group_options.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS),
+        )
+        feet = group_options.get(
+            CONF_FEET_FULL_TRAVEL_SECONDS,
+            group_options.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS),
+        )
         group_options[CONF_HEAD_FULL_TRAVEL_SECONDS] = head
         group_options[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
         for member_entry in (entry1, entry2):
@@ -184,36 +227,14 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if CONF_SHOW_CALIBRATION_BUTTONS in group_options:
                 merged[CONF_SHOW_CALIBRATION_BUTTONS] = group_options[CONF_SHOW_CALIBRATION_BUTTONS]
             self.hass.config_entries.async_update_entry(member_entry, options=merged)
-        group_data = {
-            CONF_IS_GROUP: True,
-            CONF_MEMBER_ENTRY_IDS: member_ids,
-        }
-        unique_id = f"group_{eid1}_{eid2}"
-        try:
-            group_entry = ConfigEntry(
-                version=1,
-                minor_version=0,
-                domain=DOMAIN,
-                title="Both beds",
-                data=group_data,
-                options=group_options,
-                source=SOURCE_IMPORT,
-                unique_id=unique_id,
-                discovery_keys=MappingProxyType({}),
-                subentries_data=None,
-            )
-        except TypeError:
-            group_entry = ConfigEntry(
-                version=1,
-                domain=DOMAIN,
-                title="Both beds",
-                data=group_data,
-                options=group_options,
-                source=SOURCE_IMPORT,
-                unique_id=unique_id,
-            )
-        await self.hass.config_entries.async_add(group_entry)
-        return self.async_abort(reason="pair_created")
+
+        await self.async_set_unique_id(f"group_{'_'.join(sorted(member_ids))}")
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(
+            title="Both beds",
+            data={CONF_IS_GROUP: True, CONF_MEMBER_ENTRY_IDS: member_ids},
+            options=group_options,
+        )
 
     def _pair_existing_schema(
         self, non_group: list[ConfigEntry]
@@ -229,7 +250,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_manual_address(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle manual Bluetooth address entry."""
         if user_input is not None:
             address = user_input["address"].upper().replace(" ", "").replace(":", "")
@@ -254,15 +275,15 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_pick_bed(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Show list of discovered Octo beds to add."""
         configured_addrs = {
             (e.unique_id or "").upper().replace(":", "")
             for e in self.hass.config_entries.async_entries(DOMAIN)
-            if not e.data.get("is_group") and (e.unique_id or e.data.get("address"))
+            if not e.data.get(CONF_IS_GROUP) and (e.unique_id or e.data.get("address"))
         }
         for e in self.hass.config_entries.async_entries(DOMAIN):
-            if e.data.get("is_group"):
+            if e.data.get(CONF_IS_GROUP):
                 continue
             addr = (e.data.get("address") or e.unique_id or "").upper().replace(":", "")
             if len(addr) == 12:
@@ -289,8 +310,6 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._discovery_info = bluetooth.async_last_service_info(
                     self.hass, address, connectable=True
                 )
-                if not self._discovery_info:
-                    self._discovery_info = None
                 return await self.async_step_pin()
             return await self.async_step_manual_address()
 
@@ -315,7 +334,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_confirm(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle user-confirmation of discovered device."""
         if user_input is not None:
             return await self.async_step_pin()
@@ -338,13 +357,9 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Get the options flow for this handler."""
         return OctoBedOptionsFlow()
 
-    async def async_step_import(self, import_data: dict[str, Any]) -> FlowResult:
-        """Handle import from configuration.yaml."""
-        return await self.async_step_user(import_data)
-
     async def async_step_pin(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle PIN entry - required to establish connection with the bed."""
         errors: dict[str, str] = {}
 
@@ -381,14 +396,12 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         self._device_name = (user_input.get("device_name") or "").strip()
                         other_beds = [
                             e for e in self.hass.config_entries.async_entries(DOMAIN)
-                            if not (e.data or {}).get(CONF_IS_GROUP) and getattr(e, "entry_id", None)
+                            if not (e.data or {}).get(CONF_IS_GROUP)
                         ]
                         self._other_beds = other_beds
                         if other_beds:
                             return await self.async_step_pair_choice()
                         return self._create_bed_entry()
-
-        self._pin_validated = False
 
         schema = vol.Schema(
             {
@@ -403,7 +416,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    def _create_bed_entry(self) -> FlowResult:
+    def _create_bed_entry(self) -> ConfigFlowResult:
         """Create the config entry for the bed (and optionally group)."""
         title = f"Octo Bed ({self._address})" if not self._device_name else self._device_name
         data = {"address": self._address, "pin": self._pin}
@@ -420,13 +433,13 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_pair_choice(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Ask whether to pair this bed with another as one combined device."""
         if user_input is not None:
             self._pair_with_entry_id = (user_input.get("pair") or "").strip() or None
             return self._create_bed_entry()
 
-        other_beds = getattr(self, "_other_beds", None)
+        other_beds = self._other_beds
         if other_beds is None:
             other_beds = [
                 e for e in self.hass.config_entries.async_entries(DOMAIN)
@@ -455,26 +468,11 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Single Configuration step: travel times and calibration controls."""
         if user_input is not None:
-            try:
-                head = int(user_input.get(CONF_HEAD_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
-                feet = int(user_input.get(CONF_FEET_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
-            except (TypeError, ValueError):
-                return self.async_show_form(
-                    step_id="init",
-                    data_schema=self._options_schema(),
-                    description_placeholders={"config_description": "Set full travel time (seconds) for head and feet (updated by calibration or default 30 s). Optionally show or hide the calibration buttons on the device."},
-                    errors={"base": "invalid_number"},
-                )
-            if not (5 <= head <= 120 and 5 <= feet <= 120):
-                return self.async_show_form(
-                    step_id="init",
-                    data_schema=self._options_schema(user_input),
-                    description_placeholders={"config_description": "Set full travel time (seconds) for head and feet (updated by calibration or default 30 s). Optionally show or hide the calibration buttons on the device."},
-                    errors={"base": "invalid_range"},
-                )
+            head = int(user_input.get(CONF_HEAD_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
+            feet = int(user_input.get(CONF_FEET_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS))
             new_options = {
                 CONF_HEAD_FULL_TRAVEL_SECONDS: head,
                 CONF_FEET_FULL_TRAVEL_SECONDS: feet,
@@ -497,7 +495,6 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=self._options_schema(),
-            description_placeholders={"config_description": "Set full travel time (seconds) for head and feet (updated by calibration or default 30 s). Optionally show or hide the calibration buttons on the device."},
         )
 
     def _options_schema(
@@ -508,16 +505,20 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
         current_head = opts.get(CONF_HEAD_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
         current_feet = opts.get(CONF_FEET_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
         current_buttons = opts.get(CONF_SHOW_CALIBRATION_BUTTONS, True)
+        travel_selector = NumberSelector(
+            NumberSelectorConfig(
+                min=5, max=120, step=1, mode=NumberSelectorMode.BOX,
+                unit_of_measurement="s",
+            )
+        )
         return vol.Schema(
             {
                 vol.Required(
-                    CONF_HEAD_FULL_TRAVEL_SECONDS,
-                    default=str(current_head),
-                ): str,
+                    CONF_HEAD_FULL_TRAVEL_SECONDS, default=current_head
+                ): travel_selector,
                 vol.Required(
-                    CONF_FEET_FULL_TRAVEL_SECONDS,
-                    default=str(current_feet),
-                ): str,
+                    CONF_FEET_FULL_TRAVEL_SECONDS, default=current_feet
+                ): travel_selector,
                 vol.Required(
                     CONF_SHOW_CALIBRATION_BUTTONS,
                     default=current_buttons,
