@@ -1,0 +1,190 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Octo-bed toevoegen of instellen",
+        "description": "Kies hoe je een Octo-bed wilt toevoegen of instellen.",
+        "data": {
+          "method": "Methode"
+        }
+      },
+      "confirm": {
+        "title": "Octo-bed gevonden",
+        "description": "Wil je het Octo-bed op {address} toevoegen?"
+      },
+      "pick_bed": {
+        "title": "Selecteer een bed",
+        "description": "Selecteer een gevonden bed om toe te voegen, of kies handmatige invoer. Staan er geen bedden in de lijst, controleer dan of ze aan staan en binnen bereik zijn. Elk bed heeft zijn eigen pincode."
+      },
+      "manual_address": {
+        "title": "Bluetooth-adres",
+        "description": "Voer het Bluetooth-adres van het bed in (bijvoorbeeld AA:BB:CC:DD:EE:FF).",
+        "data": {
+          "address": "Bluetooth-adres"
+        }
+      },
+      "pin": {
+        "title": "Pincode invoeren",
+        "description": "De 4-cijferige pincode is nodig om verbinding te maken met je Octo-bed. Je vindt deze in de handleiding of app van het bed.",
+        "data": {
+          "pin": "Pincode (4 cijfers)",
+          "device_name": "Apparaatnaam"
+        }
+      },
+      "pair_choice": {
+        "title": "Koppelen met een ander bed?",
+        "description": "Je kunt dit bed koppelen met een ander bed tot een gecombineerd apparaat dat beide bedden samen bedient. Elk bed blijft een eigen apparaat; het gekoppelde apparaat voegt gedeelde bediening toe.",
+        "data": {
+          "pair": "Koppelen met"
+        }
+      },
+      "calibrate_choice": {
+        "title": "Beide bedden kalibreren?",
+        "description": "Eén kalibratiesessie op het gecombineerde \"Both beds\"-apparaat beweegt beide bedden samen: eerst volledig omlaag naar 0%, daarna omhoog terwijl er gemeten wordt. De gemeten looptijden worden voor beide bedden opgeslagen, zodat ze synchroon blijven. Je kunt dit later wijzigen in de opties van het gecombineerde apparaat.",
+        "data": {
+          "calibrate_both": "Kalibratie van beide bedden op het gecombineerde apparaat inschakelen"
+        }
+      },
+      "pair_existing": {
+        "title": "Twee bedden koppelen",
+        "description": "Selecteer de twee bedden die je wilt combineren tot één \"Both beds\"-apparaat. Elk bed blijft een eigen apparaat; het gekoppelde apparaat voegt gedeelde bediening toe.",
+        "data": {
+          "bed_1": "Eerste bed",
+          "bed_2": "Tweede bed",
+          "calibrate_both": "Kalibratie van beide bedden op het gecombineerde apparaat inschakelen"
+        }
+      }
+    },
+    "error": {
+      "invalid_address": "Ongeldig Bluetooth-adres. Gebruik het formaat AA:BB:CC:DD:EE:FF (12 hexadecimale tekens).",
+      "invalid_pin": "De pincode moet precies 4 cijfers bevatten.",
+      "pin_rejected": "Het bed heeft deze pincode geweigerd. Controleer de pincode en probeer het opnieuw.",
+      "device_unavailable": "Apparaat niet bereikbaar. Controleer of het bed aan staat en binnen bereik is (of dat de Bluetooth-proxy verbonden is).",
+      "select_two_different": "Selecteer twee verschillende bedden."
+    },
+    "abort": {
+      "already_configured": "Dit apparaat is al geconfigureerd.",
+      "need_two_beds": "Er zijn minstens twee bedden nodig om te koppelen. Voeg eerst nog een bed toe.",
+      "entry_not_found": "Een van de geselecteerde bedden is niet meer beschikbaar.",
+      "pair_created": "Het gekoppelde apparaat \"Both beds\" is aangemaakt.",
+      "already_paired": "Deze twee bedden zijn al gekoppeld.",
+      "not_supported": "Deze stap kan alleen door de integratie zelf worden gestart."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configuratie",
+        "description": "Stel de volledige looptijd (seconden) in voor hoofd- en voeteneinde (bijgewerkt door kalibratie, standaard 30 s). Toon of verberg optioneel de kalibratieknoppen op het apparaat.",
+        "data": {
+          "head_full_travel_seconds": "Volledige looptijd hoofdeinde (seconden)",
+          "feet_full_travel_seconds": "Volledige looptijd voeteneinde (seconden)",
+          "show_calibration_buttons": "Kalibratieknoppen tonen"
+        }
+      }
+    }
+  },
+  "selector": {
+    "method": {
+      "options": {
+        "discovered": "Kies uit gevonden bedden",
+        "manual": "Bluetooth-adres handmatig invoeren",
+        "pair": "Twee bestaande bedden koppelen"
+      }
+    }
+  },
+  "entity": {
+    "cover": {
+      "head": {
+        "name": "Hoofdeinde"
+      },
+      "feet": {
+        "name": "Voeteneinde"
+      },
+      "both": {
+        "name": "Beide"
+      }
+    },
+    "light": {
+      "light": {
+        "name": "Verlichting"
+      }
+    },
+    "switch": {
+      "both_up": {
+        "name": "Beide omhoog"
+      },
+      "both_down": {
+        "name": "Beide omlaag"
+      },
+      "head_up": {
+        "name": "Hoofdeinde omhoog"
+      },
+      "head_down": {
+        "name": "Hoofdeinde omlaag"
+      },
+      "feet_up": {
+        "name": "Voeteneinde omhoog"
+      },
+      "feet_down": {
+        "name": "Voeteneinde omlaag"
+      },
+      "synchro": {
+        "name": "Synchro-modus"
+      }
+    },
+    "button": {
+      "stop": {
+        "name": "Stop"
+      },
+      "calibrate_head": {
+        "name": "Hoofdeinde kalibreren"
+      },
+      "calibrate_feet": {
+        "name": "Voeteneinde kalibreren"
+      },
+      "complete_calibration": {
+        "name": "Kalibratiesessie voltooien"
+      },
+      "preset": {
+        "name": "Voorkeuzestand {number}"
+      },
+      "save_preset": {
+        "name": "Voorkeuzestand {number} opslaan"
+      },
+      "sync_to": {
+        "name": "Synchroniseer naar positie van {bed}"
+      }
+    },
+    "sensor": {
+      "calibration_status": {
+        "name": "Kalibratiestatus",
+        "state": {
+          "idle": "Inactief",
+          "preparing_head": "Naar startpositie (hoofdeinde)",
+          "preparing_feet": "Naar startpositie (voeteneinde)",
+          "tracking_head": "Volledige looptijd meten (hoofdeinde)",
+          "tracking_feet": "Volledige looptijd meten (voeteneinde)",
+          "returning_head": "Terug naar start (hoofdeinde)",
+          "returning_feet": "Terug naar start (voeteneinde)"
+        }
+      },
+      "mac_address": {
+        "name": "MAC-adres"
+      },
+      "head_position": {
+        "name": "Positie hoofdeinde"
+      },
+      "feet_position": {
+        "name": "Positie voeteneinde"
+      },
+      "connection_status": {
+        "name": "Verbindingsstatus",
+        "state": {
+          "connected": "Verbonden",
+          "disconnected": "Niet verbonden"
+        }
+      }
+    }
+  }
+}

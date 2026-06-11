@@ -56,7 +56,7 @@ async def async_setup_entry(
     )
 
     buttons: list[ButtonEntity] = [
-        OctoBedButton(client, "stop", "Stop", "mdi:stop", device_info, uid),
+        OctoBedButton(client, "stop", "mdi:stop", device_info, uid),
     ]
 
     # Hardware memory presets (detected via feature discovery)
@@ -66,8 +66,8 @@ async def async_setup_entry(
 
     if entry.options.get(CONF_SHOW_CALIBRATION_BUTTONS, True):
         buttons.extend([
-            OctoBedCalibrateButton(client, entry, "calibrate_head", "Calibrate head", "mdi:arrow-up-bold", device_info, uid, calibration_disabled_paired),
-            OctoBedCalibrateButton(client, entry, "calibrate_feet", "Calibrate feet", "mdi:arrow-up-bold", device_info, uid, calibration_disabled_paired),
+            OctoBedCalibrateButton(client, entry, "calibrate_head", "mdi:arrow-up-bold", device_info, uid, calibration_disabled_paired),
+            OctoBedCalibrateButton(client, entry, "calibrate_feet", "mdi:arrow-up-bold", device_info, uid, calibration_disabled_paired),
             OctoBedCompleteCalibrationButton(client, entry, device_info, uid, calibration_disabled_paired),
         ])
 
@@ -118,7 +118,6 @@ class OctoBedButton(ButtonEntity):
         self,
         client: OctoBedClient,
         action: str,
-        name: str,
         icon: str,
         device_info: DeviceInfo,
         unique_id_prefix: str,
@@ -126,7 +125,7 @@ class OctoBedButton(ButtonEntity):
         """Initialize the button."""
         self._client = client
         self._action = action
-        self._attr_name = name
+        self._attr_translation_key = action
         self._attr_icon = icon
         self._attr_unique_id = f"{unique_id_prefix}_{action}"
         self._attr_device_info = device_info
@@ -179,7 +178,8 @@ class OctoBedPresetButton(ButtonEntity):
         """Initialize the preset button."""
         self._client = client
         self._slot = slot
-        self._attr_name = f"Preset {slot + 1}"
+        self._attr_translation_key = "preset"
+        self._attr_translation_placeholders = {"number": str(slot + 1)}
         self._attr_unique_id = f"{unique_id_prefix}_preset_{slot + 1}"
         self._attr_device_info = device_info
 
@@ -218,7 +218,8 @@ class OctoBedSavePresetButton(ButtonEntity):
         """Initialize the save preset button."""
         self._client = client
         self._slot = slot
-        self._attr_name = f"Save preset {slot + 1}"
+        self._attr_translation_key = "save_preset"
+        self._attr_translation_placeholders = {"number": str(slot + 1)}
         self._attr_unique_id = f"{unique_id_prefix}_save_preset_{slot + 1}"
         self._attr_device_info = device_info
 
@@ -251,7 +252,6 @@ class OctoBedCalibrateButton(ButtonEntity):
         client: OctoBedClient,
         entry: ConfigEntry,
         action: str,
-        name: str,
         icon: str,
         device_info: DeviceInfo,
         unique_id_prefix: str,
@@ -261,7 +261,7 @@ class OctoBedCalibrateButton(ButtonEntity):
         self._client = client
         self._entry = entry
         self._action = action
-        self._attr_name = name
+        self._attr_translation_key = action
         self._attr_icon = icon
         self._attr_unique_id = f"{unique_id_prefix}_{action}"
         self._attr_device_info = device_info
@@ -303,7 +303,7 @@ class OctoBedCompleteCalibrationButton(ButtonEntity):
 
     _attr_entity_category = EntityCategory.CONFIG
     _attr_has_entity_name = True
-    _attr_name = "Complete calibration session"
+    _attr_translation_key = "complete_calibration"
     _attr_icon = "mdi:check-circle"
 
     def __init__(
@@ -399,7 +399,8 @@ class OctoBedSyncToOtherButton(ButtonEntity):
         self._entry = entry
         self._attr_device_info = device_info
         self._attr_unique_id = f"{unique_id_prefix}_sync_to_{other_entry_id}"
-        self._attr_name = f"Sync to {other_title} position"
+        self._attr_translation_key = "sync_to"
+        self._attr_translation_placeholders = {"bed": other_title}
         self._other_entry_id = other_entry_id
         self._other_title = other_title
         self._other_position_callback_registered = False
@@ -544,7 +545,8 @@ class OctoBedSyncToBedButton(ButtonEntity):
         self._entry = entry
         self._attr_device_info = device_info
         self._attr_unique_id = f"{unique_id_prefix}_sync_to_{source_entry_id}"
-        self._attr_name = f"Sync to {source_title} position"
+        self._attr_translation_key = "sync_to"
+        self._attr_translation_placeholders = {"bed": source_title}
         self._source_entry_id = source_entry_id
         self._source_title = source_title
 

@@ -47,9 +47,9 @@ async def async_setup_entry(
     )
 
     covers = [
-        OctoBedCover(client, "head", "Head", device_info, entry, uid),
-        OctoBedCover(client, "feet", "Feet", device_info, entry, uid),
-        OctoBedCover(client, "both", "Both", device_info, entry, uid),
+        OctoBedCover(client, "head", device_info, entry, uid),
+        OctoBedCover(client, "feet", device_info, entry, uid),
+        OctoBedCover(client, "both", device_info, entry, uid),
     ]
 
     async_add_entities(covers)
@@ -71,7 +71,6 @@ class OctoBedCover(CoverEntity, RestoreEntity):
         self,
         client: OctoBedClient,
         cover_type: str,
-        name: str,
         device_info: DeviceInfo,
         entry: ConfigEntry,
         unique_id_prefix: str,
@@ -79,7 +78,7 @@ class OctoBedCover(CoverEntity, RestoreEntity):
         """Initialize the cover."""
         self._client = client
         self._cover_type = cover_type
-        self._attr_name = name
+        self._attr_translation_key = cover_type
         self._attr_unique_id = f"{unique_id_prefix}_cover_{cover_type}"
         self._attr_device_info = device_info
         self._entry = entry

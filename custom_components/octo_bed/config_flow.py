@@ -16,6 +16,9 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
 )
 
 try:  # HA 2024.4+
@@ -166,19 +169,20 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             e for e in self.hass.config_entries.async_entries(DOMAIN)
             if _is_real_bed(e)
         ]
-        method_options = [
-            ("discovered", "Choose from discovered beds"),
-            ("manual", "Enter Bluetooth address manually"),
-        ]
+        method_options = ["discovered", "manual"]
         if len(non_group) >= 2:
-            method_options.append(("pair", "Pair two existing beds"))
+            method_options.append("pair")
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Required("method", default="discovered"): vol.In(
-                        dict(method_options)
+                    vol.Required("method", default="discovered"): SelectSelector(
+                        SelectSelectorConfig(
+                            options=method_options,
+                            translation_key="method",
+                            mode=SelectSelectorMode.LIST,
+                        )
                     ),
                 }
             ),
@@ -346,7 +350,6 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data_schema=vol.Schema(
                     {vol.Required("address", default="manual"): vol.In({"manual": "Enter address manually"})}
                 ),
-                description_placeholders={"message": "No new Octo beds found. Ensure beds are on and in range, or enter the address manually."},
             )
 
         options = {"manual": "Enter address manually"}
@@ -356,7 +359,6 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {vol.Required("address"): vol.In(options)}
             ),
-            description_placeholders={"message": "Select a bed to add. Each bed needs its own PIN."},
         )
 
     async def async_step_confirm(
@@ -503,9 +505,6 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required("pair", default=NO_PAIR): vol.In(dict(pair_options)),
                 }
             ),
-            description_placeholders={
-                "message": "You can pair this bed with another to create a combined device that controls both beds together. Each bed remains its own device; the paired device adds shared controls.",
-            },
         )
 
 

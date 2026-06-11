@@ -12,6 +12,7 @@ Control your Octo adjustable bed (Octo Actuators control box, e.g. with the Star
 - **Calibration**: Measure the real full-travel time per motor for accurate positioning
 - **4-digit PIN**: Authentication with automatic keep-alive (the bed drops the connection after ~30 s without it)
 - **Automatic reconnect**: Reconnects in the background when the connection drops
+- **Multi-language**: English, Dutch, German and French (config flow, entity names and sensor states follow your Home Assistant language)
 
 ## Requirements
 

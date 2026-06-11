@@ -51,22 +51,22 @@ async def async_setup_entry(
 
     entities: list[SwitchEntity] = [
         OctoBedMovementSwitch(
-            client, "both_up", "Both Up", "mdi:arrow-up-bold", device_info, entry, uid
+            client, "both_up", "mdi:arrow-up-bold", device_info, entry, uid
         ),
         OctoBedMovementSwitch(
-            client, "both_down", "Both Down", "mdi:arrow-down-bold", device_info, entry, uid
+            client, "both_down", "mdi:arrow-down-bold", device_info, entry, uid
         ),
         OctoBedMovementSwitch(
-            client, "head_up", "Head Up", "mdi:arrow-up", device_info, entry, uid
+            client, "head_up", "mdi:arrow-up", device_info, entry, uid
         ),
         OctoBedMovementSwitch(
-            client, "head_down", "Head Down", "mdi:arrow-down", device_info, entry, uid
+            client, "head_down", "mdi:arrow-down", device_info, entry, uid
         ),
         OctoBedMovementSwitch(
-            client, "feet_up", "Feet Up", "mdi:arrow-up", device_info, entry, uid
+            client, "feet_up", "mdi:arrow-up", device_info, entry, uid
         ),
         OctoBedMovementSwitch(
-            client, "feet_down", "Feet Down", "mdi:arrow-down", device_info, entry, uid
+            client, "feet_down", "mdi:arrow-down", device_info, entry, uid
         ),
     ]
 
@@ -81,7 +81,7 @@ class OctoBedSynchroSwitch(SwitchEntity):
     """Toggle the bed's linked (synchro) drive mode."""
 
     _attr_has_entity_name = True
-    _attr_name = "Synchro mode"
+    _attr_translation_key = "synchro"
     _attr_icon = "mdi:link-variant"
     _attr_entity_category = EntityCategory.CONFIG
     _attr_entity_registry_enabled_default = False
@@ -130,7 +130,6 @@ class OctoBedMovementSwitch(SwitchEntity):
         self,
         client: OctoBedClient,
         action: str,
-        name: str,
         icon: str,
         device_info: DeviceInfo,
         entry: ConfigEntry,
@@ -139,7 +138,7 @@ class OctoBedMovementSwitch(SwitchEntity):
         """Initialize the movement switch."""
         self._client = client
         self._action = action
-        self._attr_name = name
+        self._attr_translation_key = action
         self._attr_icon = icon
         self._attr_unique_id = f"{unique_id_prefix}_move_{action}"
         self._attr_device_info = device_info

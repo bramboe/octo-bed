@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
@@ -61,7 +61,17 @@ class OctoBedCalibrationStatusSensor(SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_has_entity_name = True
     _attr_icon = "mdi:ruler"
-    _attr_name = "Calibration status"
+    _attr_translation_key = "calibration_status"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [
+        "idle",
+        "preparing_head",
+        "preparing_feet",
+        "tracking_head",
+        "tracking_feet",
+        "returning_head",
+        "returning_feet",
+    ]
 
     def __init__(
         self,
@@ -93,24 +103,17 @@ class OctoBedCalibrationStatusSensor(SensorEntity):
 
     @property
     def native_value(self) -> str:
-        """Return human-readable calibration status for display."""
+        """Return the calibration state (enum; display names come from translations)."""
         state, part = self._client.get_calibration_status()
-        if state == "preparing":
-            return f"Moving to start position ({part})" if part else "Moving to start position"
-        if state == "tracking":
-            return f"Measuring full travel ({part})" if part else "Measuring full travel"
-        if state == "returning":
-            return f"Returning to start ({part})" if part else "Returning to start"
-        return "Inactive"
+        if state in ("preparing", "tracking", "returning") and part:
+            return f"{state}_{part}"
+        return "idle"
 
     @property
     def extra_state_attributes(self) -> dict[str, str | int | None]:
-        """Return raw state, part and elapsed measuring time for automation."""
+        """Return part and elapsed measuring time for automations."""
         state, part = self._client.get_calibration_status()
-        raw = "idle"
-        if state in ("preparing", "tracking", "returning"):
-            raw = f"{state}_{part}" if part else state
-        attrs: dict[str, str | int | None] = {"part": part, "state": raw}
+        attrs: dict[str, str | int | None] = {"part": part}
         if state == "tracking":
             attrs["elapsed_seconds"] = int(
                 self._client.get_calibration_elapsed_seconds()
@@ -130,14 +133,14 @@ class OctoBedDiagnosticSensor(SensorEntity):
         device_info: DeviceInfo,
         unique_id_prefix: str,
         unique_id_suffix: str,
-        name: str,
+        translation_key: str,
         icon: str,
     ) -> None:
         """Initialize the sensor."""
         self._client = client
         self._attr_device_info = device_info
         self._attr_unique_id = f"{unique_id_prefix}_{unique_id_suffix}"
-        self._attr_name = name
+        self._attr_translation_key = translation_key
         self._attr_icon = icon
 
 
@@ -153,7 +156,7 @@ class OctoBedMacAddressSensor(OctoBedDiagnosticSensor):
             device_info,
             unique_id_prefix,
             "mac_address",
-            "MAC address",
+            "mac_address",
             "mdi:bluetooth",
         )
 
@@ -175,7 +178,7 @@ class OctoBedHeadPositionSensor(OctoBedDiagnosticSensor):
             device_info,
             unique_id_prefix,
             "head_position",
-            "Head position",
+            "head_position",
             "mdi:arrow-up-down",
         )
 
@@ -208,7 +211,7 @@ class OctoBedFeetPositionSensor(OctoBedDiagnosticSensor):
             device_info,
             unique_id_prefix,
             "feet_position",
-            "Feet position",
+            "feet_position",
             "mdi:arrow-up-down",
         )
 
@@ -234,6 +237,8 @@ class OctoBedConnectionStatusSensor(OctoBedDiagnosticSensor):
 
     _attr_icon = "mdi:bluetooth-connect"
     _attr_should_poll = False
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = ["connected", "disconnected"]
 
     def __init__(self, client: OctoBedClient, device_info: DeviceInfo, unique_id_prefix: str) -> None:
         """Initialize the connection status sensor."""
@@ -242,7 +247,7 @@ class OctoBedConnectionStatusSensor(OctoBedDiagnosticSensor):
             device_info,
             unique_id_prefix,
             "connection_status",
-            "Connection status",
+            "connection_status",
             "mdi:bluetooth-connect",
         )
 

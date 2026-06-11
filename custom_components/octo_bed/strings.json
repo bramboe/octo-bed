@@ -4,11 +4,24 @@
       "user": {
         "title": "Add or set up Octo Bed",
         "description": "Choose how to add or set up an Octo bed.",
-        "data": {}
+        "data": {
+          "method": "Method"
+        }
       },
       "confirm": {
         "title": "Octo Bed found",
         "description": "Do you want to add the Octo Bed at {address}?"
+      },
+      "pick_bed": {
+        "title": "Select a bed",
+        "description": "Select a discovered bed to add, or choose manual entry. If no beds are listed, make sure they are powered on and in range. Each bed needs its own PIN."
+      },
+      "manual_address": {
+        "title": "Bluetooth address",
+        "description": "Enter the bed's Bluetooth address (for example AA:BB:CC:DD:EE:FF).",
+        "data": {
+          "address": "Bluetooth address"
+        }
       },
       "pin": {
         "title": "Enter PIN",
@@ -20,9 +33,16 @@
       },
       "pair_choice": {
         "title": "Pair with another bed?",
-        "description": "{message}",
+        "description": "You can pair this bed with another to create a combined device that controls both beds together. Each bed remains its own device; the paired device adds shared controls.",
         "data": {
           "pair": "Pair with"
+        }
+      },
+      "calibrate_choice": {
+        "title": "Calibrate both beds?",
+        "description": "One calibration session on the combined \"Both beds\" device moves both beds together: first fully down to 0%, then up while measuring. The measured travel times are stored for both beds, so they stay in sync. You can change this later in the options of the combined device.",
+        "data": {
+          "calibrate_both": "Enable calibration of both beds on the combined device"
         }
       },
       "pair_existing": {
@@ -31,13 +51,6 @@
         "data": {
           "bed_1": "First bed",
           "bed_2": "Second bed",
-          "calibrate_both": "Enable calibration of both beds on the combined device"
-        }
-      },
-      "calibrate_choice": {
-        "title": "Calibrate both beds?",
-        "description": "One calibration session on the combined \"Both beds\" device moves both beds together: first fully down to 0%, then up while measuring. The measured travel times are stored for both beds, so they stay in sync. You can change this later in the options of the combined device.",
-        "data": {
           "calibrate_both": "Enable calibration of both beds on the combined device"
         }
       }
@@ -67,6 +80,109 @@
           "head_full_travel_seconds": "Head full travel (seconds)",
           "feet_full_travel_seconds": "Feet full travel (seconds)",
           "show_calibration_buttons": "Show calibration buttons"
+        }
+      }
+    }
+  },
+  "selector": {
+    "method": {
+      "options": {
+        "discovered": "Choose from discovered beds",
+        "manual": "Enter Bluetooth address manually",
+        "pair": "Pair two existing beds"
+      }
+    }
+  },
+  "entity": {
+    "cover": {
+      "head": {
+        "name": "Head"
+      },
+      "feet": {
+        "name": "Feet"
+      },
+      "both": {
+        "name": "Both"
+      }
+    },
+    "light": {
+      "light": {
+        "name": "Light"
+      }
+    },
+    "switch": {
+      "both_up": {
+        "name": "Both up"
+      },
+      "both_down": {
+        "name": "Both down"
+      },
+      "head_up": {
+        "name": "Head up"
+      },
+      "head_down": {
+        "name": "Head down"
+      },
+      "feet_up": {
+        "name": "Feet up"
+      },
+      "feet_down": {
+        "name": "Feet down"
+      },
+      "synchro": {
+        "name": "Synchro mode"
+      }
+    },
+    "button": {
+      "stop": {
+        "name": "Stop"
+      },
+      "calibrate_head": {
+        "name": "Calibrate head"
+      },
+      "calibrate_feet": {
+        "name": "Calibrate feet"
+      },
+      "complete_calibration": {
+        "name": "Complete calibration session"
+      },
+      "preset": {
+        "name": "Preset {number}"
+      },
+      "save_preset": {
+        "name": "Save preset {number}"
+      },
+      "sync_to": {
+        "name": "Sync to {bed} position"
+      }
+    },
+    "sensor": {
+      "calibration_status": {
+        "name": "Calibration status",
+        "state": {
+          "idle": "Inactive",
+          "preparing_head": "Moving to start position (head)",
+          "preparing_feet": "Moving to start position (feet)",
+          "tracking_head": "Measuring full travel (head)",
+          "tracking_feet": "Measuring full travel (feet)",
+          "returning_head": "Returning to start (head)",
+          "returning_feet": "Returning to start (feet)"
+        }
+      },
+      "mac_address": {
+        "name": "MAC address"
+      },
+      "head_position": {
+        "name": "Head position"
+      },
+      "feet_position": {
+        "name": "Feet position"
+      },
+      "connection_status": {
+        "name": "Connection status",
+        "state": {
+          "connected": "Connected",
+          "disconnected": "Disconnected"
         }
       }
     }

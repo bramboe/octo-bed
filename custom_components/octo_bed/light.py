@@ -40,7 +40,7 @@ class OctoBedLight(LightEntity, RestoreEntity):
     """Under-bed light. State is assumed: the bed does not report it."""
 
     _attr_has_entity_name = True
-    _attr_name = "Light"
+    _attr_translation_key = "light"
     _attr_assumed_state = True
 
     def __init__(

@@ -1,0 +1,190 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Ajouter ou configurer un lit Octo",
+        "description": "Choisissez comment ajouter ou configurer un lit Octo.",
+        "data": {
+          "method": "Méthode"
+        }
+      },
+      "confirm": {
+        "title": "Lit Octo détecté",
+        "description": "Voulez-vous ajouter le lit Octo à l'adresse {address} ?"
+      },
+      "pick_bed": {
+        "title": "Sélectionner un lit",
+        "description": "Sélectionnez un lit détecté à ajouter, ou choisissez la saisie manuelle. Si aucun lit n'apparaît, vérifiez qu'ils sont allumés et à portée. Chaque lit a son propre code PIN."
+      },
+      "manual_address": {
+        "title": "Adresse Bluetooth",
+        "description": "Saisissez l'adresse Bluetooth du lit (par exemple AA:BB:CC:DD:EE:FF).",
+        "data": {
+          "address": "Adresse Bluetooth"
+        }
+      },
+      "pin": {
+        "title": "Saisir le code PIN",
+        "description": "Le code PIN à 4 chiffres est requis pour établir la connexion avec votre lit Octo. Vous le trouverez dans le manuel ou l'application du lit.",
+        "data": {
+          "pin": "Code PIN (4 chiffres)",
+          "device_name": "Nom de l'appareil"
+        }
+      },
+      "pair_choice": {
+        "title": "Associer à un autre lit ?",
+        "description": "Vous pouvez associer ce lit à un autre pour créer un appareil combiné qui commande les deux lits ensemble. Chaque lit reste un appareil distinct ; l'appareil combiné ajoute des commandes partagées.",
+        "data": {
+          "pair": "Associer à"
+        }
+      },
+      "calibrate_choice": {
+        "title": "Étalonner les deux lits ?",
+        "description": "Une session d'étalonnage sur l'appareil combiné « Both beds » déplace les deux lits ensemble : d'abord entièrement vers le bas à 0 %, puis vers le haut pendant la mesure. Les temps de course mesurés sont enregistrés pour les deux lits afin qu'ils restent synchronisés. Vous pourrez modifier cela plus tard dans les options de l'appareil combiné.",
+        "data": {
+          "calibrate_both": "Activer l'étalonnage des deux lits sur l'appareil combiné"
+        }
+      },
+      "pair_existing": {
+        "title": "Associer deux lits",
+        "description": "Sélectionnez les deux lits à combiner en un appareil « Both beds ». Chaque lit reste un appareil distinct ; l'appareil combiné ajoute des commandes partagées.",
+        "data": {
+          "bed_1": "Premier lit",
+          "bed_2": "Deuxième lit",
+          "calibrate_both": "Activer l'étalonnage des deux lits sur l'appareil combiné"
+        }
+      }
+    },
+    "error": {
+      "invalid_address": "Adresse Bluetooth non valide. Utilisez le format AA:BB:CC:DD:EE:FF (12 caractères hexadécimaux).",
+      "invalid_pin": "Le code PIN doit comporter exactement 4 chiffres.",
+      "pin_rejected": "Le lit a refusé ce code PIN. Vérifiez-le et réessayez.",
+      "device_unavailable": "Appareil injoignable. Vérifiez que le lit est allumé et à portée (ou que le proxy Bluetooth est connecté).",
+      "select_two_different": "Sélectionnez deux lits différents."
+    },
+    "abort": {
+      "already_configured": "Cet appareil est déjà configuré.",
+      "need_two_beds": "Au moins deux lits sont nécessaires pour l'association. Ajoutez d'abord un autre lit.",
+      "entry_not_found": "L'un des lits sélectionnés n'est plus disponible.",
+      "pair_created": "L'appareil combiné « Both beds » a été créé.",
+      "already_paired": "Ces deux lits sont déjà associés.",
+      "not_supported": "Ce processus ne peut être lancé que par l'intégration elle-même."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configuration",
+        "description": "Définissez le temps de course complet (secondes) pour la tête et les pieds (mis à jour par l'étalonnage, 30 s par défaut). Affichez ou masquez éventuellement les boutons d'étalonnage sur l'appareil.",
+        "data": {
+          "head_full_travel_seconds": "Course complète de la tête (secondes)",
+          "feet_full_travel_seconds": "Course complète des pieds (secondes)",
+          "show_calibration_buttons": "Afficher les boutons d'étalonnage"
+        }
+      }
+    }
+  },
+  "selector": {
+    "method": {
+      "options": {
+        "discovered": "Choisir parmi les lits détectés",
+        "manual": "Saisir l'adresse Bluetooth manuellement",
+        "pair": "Associer deux lits existants"
+      }
+    }
+  },
+  "entity": {
+    "cover": {
+      "head": {
+        "name": "Tête"
+      },
+      "feet": {
+        "name": "Pieds"
+      },
+      "both": {
+        "name": "Les deux"
+      }
+    },
+    "light": {
+      "light": {
+        "name": "Éclairage"
+      }
+    },
+    "switch": {
+      "both_up": {
+        "name": "Les deux vers le haut"
+      },
+      "both_down": {
+        "name": "Les deux vers le bas"
+      },
+      "head_up": {
+        "name": "Tête vers le haut"
+      },
+      "head_down": {
+        "name": "Tête vers le bas"
+      },
+      "feet_up": {
+        "name": "Pieds vers le haut"
+      },
+      "feet_down": {
+        "name": "Pieds vers le bas"
+      },
+      "synchro": {
+        "name": "Mode synchro"
+      }
+    },
+    "button": {
+      "stop": {
+        "name": "Arrêt"
+      },
+      "calibrate_head": {
+        "name": "Étalonner la tête"
+      },
+      "calibrate_feet": {
+        "name": "Étalonner les pieds"
+      },
+      "complete_calibration": {
+        "name": "Terminer l'étalonnage"
+      },
+      "preset": {
+        "name": "Préréglage {number}"
+      },
+      "save_preset": {
+        "name": "Enregistrer le préréglage {number}"
+      },
+      "sync_to": {
+        "name": "Synchroniser sur la position de {bed}"
+      }
+    },
+    "sensor": {
+      "calibration_status": {
+        "name": "État de l'étalonnage",
+        "state": {
+          "idle": "Inactif",
+          "preparing_head": "Retour à la position de départ (tête)",
+          "preparing_feet": "Retour à la position de départ (pieds)",
+          "tracking_head": "Mesure de la course complète (tête)",
+          "tracking_feet": "Mesure de la course complète (pieds)",
+          "returning_head": "Retour au départ (tête)",
+          "returning_feet": "Retour au départ (pieds)"
+        }
+      },
+      "mac_address": {
+        "name": "Adresse MAC"
+      },
+      "head_position": {
+        "name": "Position de la tête"
+      },
+      "feet_position": {
+        "name": "Position des pieds"
+      },
+      "connection_status": {
+        "name": "État de la connexion",
+        "state": {
+          "connected": "Connecté",
+          "disconnected": "Déconnecté"
+        }
+      }
+    }
+  }
+}

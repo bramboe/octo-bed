@@ -1,0 +1,190 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Octo-Bett hinzufügen oder einrichten",
+        "description": "Wähle aus, wie ein Octo-Bett hinzugefügt oder eingerichtet werden soll.",
+        "data": {
+          "method": "Methode"
+        }
+      },
+      "confirm": {
+        "title": "Octo-Bett gefunden",
+        "description": "Möchtest du das Octo-Bett unter {address} hinzufügen?"
+      },
+      "pick_bed": {
+        "title": "Bett auswählen",
+        "description": "Wähle ein gefundenes Bett aus oder gib die Adresse manuell ein. Werden keine Betten angezeigt, stelle sicher, dass sie eingeschaltet und in Reichweite sind. Jedes Bett benötigt eine eigene PIN."
+      },
+      "manual_address": {
+        "title": "Bluetooth-Adresse",
+        "description": "Gib die Bluetooth-Adresse des Betts ein (z. B. AA:BB:CC:DD:EE:FF).",
+        "data": {
+          "address": "Bluetooth-Adresse"
+        }
+      },
+      "pin": {
+        "title": "PIN eingeben",
+        "description": "Die 4-stellige PIN wird benötigt, um eine Verbindung mit dem Octo-Bett herzustellen. Du findest sie in der Anleitung oder App des Betts.",
+        "data": {
+          "pin": "PIN (4 Ziffern)",
+          "device_name": "Gerätename"
+        }
+      },
+      "pair_choice": {
+        "title": "Mit einem anderen Bett koppeln?",
+        "description": "Du kannst dieses Bett mit einem anderen koppeln, um ein kombiniertes Gerät zu erstellen, das beide Betten gemeinsam steuert. Jedes Bett bleibt ein eigenes Gerät; das gekoppelte Gerät fügt gemeinsame Bedienelemente hinzu.",
+        "data": {
+          "pair": "Koppeln mit"
+        }
+      },
+      "calibrate_choice": {
+        "title": "Beide Betten kalibrieren?",
+        "description": "Eine Kalibrierungssitzung auf dem kombinierten Gerät \"Both beds\" bewegt beide Betten gemeinsam: zuerst vollständig nach unten auf 0 %, dann nach oben, während gemessen wird. Die gemessenen Laufzeiten werden für beide Betten gespeichert, damit sie synchron bleiben. Dies lässt sich später in den Optionen des kombinierten Geräts ändern.",
+        "data": {
+          "calibrate_both": "Kalibrierung beider Betten auf dem kombinierten Gerät aktivieren"
+        }
+      },
+      "pair_existing": {
+        "title": "Zwei Betten koppeln",
+        "description": "Wähle die zwei Betten aus, die zu einem \"Both beds\"-Gerät kombiniert werden sollen. Jedes Bett bleibt ein eigenes Gerät; das gekoppelte Gerät fügt gemeinsame Bedienelemente hinzu.",
+        "data": {
+          "bed_1": "Erstes Bett",
+          "bed_2": "Zweites Bett",
+          "calibrate_both": "Kalibrierung beider Betten auf dem kombinierten Gerät aktivieren"
+        }
+      }
+    },
+    "error": {
+      "invalid_address": "Ungültige Bluetooth-Adresse. Verwende das Format AA:BB:CC:DD:EE:FF (12 Hex-Zeichen).",
+      "invalid_pin": "Die PIN muss genau 4 Ziffern haben.",
+      "pin_rejected": "Das Bett hat diese PIN abgelehnt. Überprüfe die PIN und versuche es erneut.",
+      "device_unavailable": "Gerät nicht erreichbar. Stelle sicher, dass das Bett eingeschaltet und in Reichweite ist (oder der Bluetooth-Proxy verbunden ist).",
+      "select_two_different": "Wähle zwei verschiedene Betten aus."
+    },
+    "abort": {
+      "already_configured": "Dieses Gerät ist bereits konfiguriert.",
+      "need_two_beds": "Zum Koppeln sind mindestens zwei Betten erforderlich. Füge zuerst ein weiteres Bett hinzu.",
+      "entry_not_found": "Eines der ausgewählten Betten ist nicht mehr verfügbar.",
+      "pair_created": "Das gekoppelte Gerät \"Both beds\" wurde erstellt.",
+      "already_paired": "Diese beiden Betten sind bereits gekoppelt.",
+      "not_supported": "Dieser Ablauf kann nur von der Integration selbst gestartet werden."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Konfiguration",
+        "description": "Lege die vollständige Laufzeit (Sekunden) für Kopf- und Fußteil fest (durch Kalibrierung aktualisiert, Standard 30 s). Blende optional die Kalibrierungstasten am Gerät ein oder aus.",
+        "data": {
+          "head_full_travel_seconds": "Volle Laufzeit Kopfteil (Sekunden)",
+          "feet_full_travel_seconds": "Volle Laufzeit Fußteil (Sekunden)",
+          "show_calibration_buttons": "Kalibrierungstasten anzeigen"
+        }
+      }
+    }
+  },
+  "selector": {
+    "method": {
+      "options": {
+        "discovered": "Aus gefundenen Betten wählen",
+        "manual": "Bluetooth-Adresse manuell eingeben",
+        "pair": "Zwei vorhandene Betten koppeln"
+      }
+    }
+  },
+  "entity": {
+    "cover": {
+      "head": {
+        "name": "Kopfteil"
+      },
+      "feet": {
+        "name": "Fußteil"
+      },
+      "both": {
+        "name": "Beide"
+      }
+    },
+    "light": {
+      "light": {
+        "name": "Licht"
+      }
+    },
+    "switch": {
+      "both_up": {
+        "name": "Beide hoch"
+      },
+      "both_down": {
+        "name": "Beide runter"
+      },
+      "head_up": {
+        "name": "Kopfteil hoch"
+      },
+      "head_down": {
+        "name": "Kopfteil runter"
+      },
+      "feet_up": {
+        "name": "Fußteil hoch"
+      },
+      "feet_down": {
+        "name": "Fußteil runter"
+      },
+      "synchro": {
+        "name": "Synchro-Modus"
+      }
+    },
+    "button": {
+      "stop": {
+        "name": "Stopp"
+      },
+      "calibrate_head": {
+        "name": "Kopfteil kalibrieren"
+      },
+      "calibrate_feet": {
+        "name": "Fußteil kalibrieren"
+      },
+      "complete_calibration": {
+        "name": "Kalibrierung abschließen"
+      },
+      "preset": {
+        "name": "Voreinstellung {number}"
+      },
+      "save_preset": {
+        "name": "Voreinstellung {number} speichern"
+      },
+      "sync_to": {
+        "name": "Auf Position von {bed} synchronisieren"
+      }
+    },
+    "sensor": {
+      "calibration_status": {
+        "name": "Kalibrierungsstatus",
+        "state": {
+          "idle": "Inaktiv",
+          "preparing_head": "Fährt in Startposition (Kopfteil)",
+          "preparing_feet": "Fährt in Startposition (Fußteil)",
+          "tracking_head": "Volle Laufzeit wird gemessen (Kopfteil)",
+          "tracking_feet": "Volle Laufzeit wird gemessen (Fußteil)",
+          "returning_head": "Kehrt zum Start zurück (Kopfteil)",
+          "returning_feet": "Kehrt zum Start zurück (Fußteil)"
+        }
+      },
+      "mac_address": {
+        "name": "MAC-Adresse"
+      },
+      "head_position": {
+        "name": "Position Kopfteil"
+      },
+      "feet_position": {
+        "name": "Position Fußteil"
+      },
+      "connection_status": {
+        "name": "Verbindungsstatus",
+        "state": {
+          "connected": "Verbunden",
+          "disconnected": "Getrennt"
+        }
+      }
+    }
+  }
+}
