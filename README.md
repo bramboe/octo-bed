@@ -130,6 +130,12 @@ Protocol knowledge builds on the reverse-engineering work of the Home Assistant 
 [ha-adjustable-bed](https://github.com/kristofferR/ha-adjustable-bed),
 [smartbed-mqtt](https://github.com/richardhopton/smartbed-mqtt)).
 
+## Support
+
+If this integration is useful to you, consider buying me a coffee ☕
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/bramboe)
+
 ## License
 
 MIT
