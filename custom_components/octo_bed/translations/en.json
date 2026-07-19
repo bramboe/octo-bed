@@ -86,7 +86,11 @@
         "data": {
           "head_full_travel_seconds": "Head full travel (seconds)",
           "feet_full_travel_seconds": "Feet full travel (seconds)",
-          "show_calibration_buttons": "Show calibration buttons"
+          "show_calibration_buttons": "Show calibration buttons",
+          "proxy_source": "Bluetooth proxy"
+        },
+        "data_description": {
+          "proxy_source": "Pin this bed to a specific Bluetooth proxy/adapter so Home Assistant keeps its connection there instead of moving it to another proxy. Leave on Automatic unless the bed keeps dropping out."
         }
       }
     }

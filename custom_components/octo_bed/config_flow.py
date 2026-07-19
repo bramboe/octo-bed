@@ -37,10 +37,12 @@ from .const import (
     CONF_MEMBER_ENTRY_IDS,
     CONF_PAIR_CALIBRATE,
     CONF_PAIR_WITH_ENTRY_ID,
+    CONF_PROXY_SOURCE,
     CONF_SHOW_CALIBRATION_BUTTONS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
     OCTO_BED_SERVICE_UUID,
+    PROXY_SOURCE_AUTO,
 )
 from .octo_bed_client import OctoBedClient
 
@@ -544,6 +546,16 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
                 CONF_FEET_FULL_TRAVEL_SECONDS: feet,
                 CONF_SHOW_CALIBRATION_BUTTONS: user_input[CONF_SHOW_CALIBRATION_BUTTONS],
             }
+            # Per-bed proxy pin (only offered for real bed entries with an address).
+            # Reload the entry when it changes so the connection re-resolves via
+            # the newly selected proxy.
+            proxy_changed = False
+            if CONF_PROXY_SOURCE in user_input:
+                new_source = user_input[CONF_PROXY_SOURCE]
+                proxy_changed = new_source != self.config_entry.options.get(
+                    CONF_PROXY_SOURCE, PROXY_SOURCE_AUTO
+                )
+                new_options[CONF_PROXY_SOURCE] = new_source
             # When paired: keep head/feet travel in sync across group and both member beds
             for entry_id in _get_related_entry_ids(self.hass, self.config_entry):
                 if entry_id == self.config_entry.entry_id:
@@ -556,7 +568,12 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
                 merged[CONF_FEET_FULL_TRAVEL_SECONDS] = feet
                 merged[CONF_SHOW_CALIBRATION_BUTTONS] = new_options[CONF_SHOW_CALIBRATION_BUTTONS]
                 self.hass.config_entries.async_update_entry(other, options=merged)
-            return self.async_create_entry(title="", data=new_options)
+            result = self.async_create_entry(title="", data=new_options)
+            if proxy_changed:
+                self.hass.async_create_task(
+                    self.hass.config_entries.async_reload(self.config_entry.entry_id)
+                )
+            return result
 
         return self.async_show_form(
             step_id="init",
@@ -577,17 +594,73 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
                 unit_of_measurement="s",
             )
         )
-        return vol.Schema(
-            {
+        schema: dict[Any, Any] = {
+            vol.Required(
+                CONF_HEAD_FULL_TRAVEL_SECONDS, default=current_head
+            ): travel_selector,
+            vol.Required(
+                CONF_FEET_FULL_TRAVEL_SECONDS, default=current_feet
+            ): travel_selector,
+            vol.Required(
+                CONF_SHOW_CALIBRATION_BUTTONS,
+                default=current_buttons,
+            ): bool,
+        }
+        proxy_selector = self._proxy_selector(opts)
+        if proxy_selector is not None:
+            schema[
                 vol.Required(
-                    CONF_HEAD_FULL_TRAVEL_SECONDS, default=current_head
-                ): travel_selector,
-                vol.Required(
-                    CONF_FEET_FULL_TRAVEL_SECONDS, default=current_feet
-                ): travel_selector,
-                vol.Required(
-                    CONF_SHOW_CALIBRATION_BUTTONS,
-                    default=current_buttons,
-                ): bool,
-            }
+                    CONF_PROXY_SOURCE,
+                    default=opts.get(CONF_PROXY_SOURCE, PROXY_SOURCE_AUTO),
+                )
+            ] = proxy_selector
+        return vol.Schema(schema)
+
+    def _proxy_selector(
+        self, opts: dict[str, Any]
+    ) -> SelectSelector | None:
+        """Build a selector of Bluetooth proxies that can reach this bed.
+
+        Returns None for group entries or entries without an address (no
+        single BLE connection to pin). Always offers "Automatic" plus every
+        connectable proxy currently seeing the bed, and keeps a
+        previously-pinned proxy selectable even when it is not visible now.
+        """
+        if self.config_entry.data.get(CONF_IS_GROUP):
+            return None
+        address = self.config_entry.data.get("address")
+        if not address:
+            return None
+
+        options: list[dict[str, str]] = [
+            {"value": PROXY_SOURCE_AUTO, "label": "Automatic (best signal)"}
+        ]
+        seen = {PROXY_SOURCE_AUTO}
+        try:
+            scanner_devices = bluetooth.async_scanner_devices_by_address(
+                self.hass, address, connectable=True
+            )
+        except Exception:  # noqa: BLE001 - be tolerant of core API differences
+            scanner_devices = []
+        for scanner_device in scanner_devices:
+            source = scanner_device.scanner.source
+            if source in seen:
+                continue
+            seen.add(source)
+            name = scanner_device.scanner.name or source
+            rssi = getattr(scanner_device.advertisement, "rssi", None)
+            label = f"{name} ({rssi} dBm)" if rssi is not None else str(name)
+            options.append({"value": source, "label": label})
+
+        current = opts.get(CONF_PROXY_SOURCE, PROXY_SOURCE_AUTO)
+        if current not in seen:
+            options.append(
+                {"value": current, "label": f"{current} (currently unavailable)"}
+            )
+
+        return SelectSelector(
+            SelectSelectorConfig(
+                options=options,
+                mode=SelectSelectorMode.DROPDOWN,
+            )
         )

@@ -86,7 +86,11 @@
         "data": {
           "head_full_travel_seconds": "Volledige looptijd hoofdeinde (seconden)",
           "feet_full_travel_seconds": "Volledige looptijd voeteneinde (seconden)",
-          "show_calibration_buttons": "Kalibratieknoppen tonen"
+          "show_calibration_buttons": "Kalibratieknoppen tonen",
+          "proxy_source": "Bluetooth-proxy"
+        },
+        "data_description": {
+          "proxy_source": "Zet dit bed vast op een specifieke Bluetooth-proxy/adapter, zodat Home Assistant de verbinding daar houdt en niet naar een andere proxy verplaatst. Laat op Automatisch staan, tenzij het bed steeds wegvalt."
         }
       }
     }

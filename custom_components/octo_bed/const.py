@@ -22,6 +22,11 @@ CONF_HEAD_FULL_TRAVEL_SECONDS = "head_full_travel_seconds"
 CONF_FEET_FULL_TRAVEL_SECONDS = "feet_full_travel_seconds"
 CONF_SHOW_CALIBRATION_BUTTONS = "show_calibration_buttons"
 CONF_SOFT_PRESETS = "soft_presets"
+# Pin the bed's BLE connection to a specific Bluetooth proxy/adapter (scanner
+# source MAC). PROXY_SOURCE_AUTO leaves proxy selection to Home Assistant
+# (best RSSI / load balancing), which is the default behaviour.
+CONF_PROXY_SOURCE = "proxy_source"
+PROXY_SOURCE_AUTO = "auto"
 DEFAULT_FULL_TRAVEL_SECONDS = 30
 SOFT_PRESET_SLOTS = 3
 

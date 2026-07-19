@@ -21,9 +21,11 @@ from .const import (
     CONF_MEMBER_ENTRY_IDS,
     CONF_PAIR_CALIBRATE,
     CONF_PAIR_WITH_ENTRY_ID,
+    CONF_PROXY_SOURCE,
     CONF_SHOW_CALIBRATION_BUTTONS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
+    PROXY_SOURCE_AUTO,
 )
 from .group_client import GroupOctoBedClient
 from .octo_bed_client import OctoBedClient
@@ -37,6 +39,32 @@ PLATFORMS: list[Platform] = [
     Platform.LIGHT,
     Platform.SENSOR,
 ]
+
+
+def _async_resolve_ble_device(
+    hass: HomeAssistant, address: str, source: str | None
+):
+    """Return a BLEDevice for the bed, pinned to a specific proxy when requested.
+
+    When ``source`` names a specific Bluetooth proxy/adapter (its scanner
+    source MAC), only that scanner is used, so Home Assistant will not move the
+    connection onto a different (e.g. more distant) proxy. Falls back to the
+    default best-path selection when the pinned proxy currently cannot reach
+    the bed, or when no source is pinned (PROXY_SOURCE_AUTO / unset).
+    """
+    if source and source != PROXY_SOURCE_AUTO:
+        for scanner_device in bluetooth.async_scanner_devices_by_address(
+            hass, address, connectable=True
+        ):
+            if scanner_device.scanner.source == source:
+                return scanner_device.ble_device
+        _LOGGER.debug(
+            "Pinned Bluetooth proxy %s cannot currently reach Octo bed %s; "
+            "falling back to automatic proxy selection",
+            source,
+            address,
+        )
+    return bluetooth.async_ble_device_from_address(hass, address, connectable=True)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -86,8 +114,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     address = entry.data["address"]
     pin = entry.data["pin"]
 
-    bleak_device = bluetooth.async_ble_device_from_address(
-        hass, address, connectable=True
+    bleak_device = _async_resolve_ble_device(
+        hass, address, entry.options.get(CONF_PROXY_SOURCE, PROXY_SOURCE_AUTO)
     )
 
     if not bleak_device:
@@ -97,8 +125,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     async def _get_device():
-        return bluetooth.async_ble_device_from_address(
-            hass, address, connectable=True
+        # Re-read the option each time so a changed pin takes effect on the
+        # next reconnect; enforced on every reconnect since the client calls
+        # this resolver before each connection attempt.
+        return _async_resolve_ble_device(
+            hass, address, entry.options.get(CONF_PROXY_SOURCE, PROXY_SOURCE_AUTO)
         )
 
     client = OctoBedClient(
