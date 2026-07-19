@@ -12,6 +12,7 @@ from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
@@ -87,6 +88,66 @@ def _is_octo_bed(info: BluetoothServiceInfoBleak) -> bool:
     return False
 
 
+def _proxy_friendly_name(
+    hass: HomeAssistant, source: str, scanner_name: str | None
+) -> str:
+    """Resolve the user-facing name of a Bluetooth proxy/adapter.
+
+    Prefers the device-registry name (including a user-given rename) over the
+    technical scanner name (e.g. the ESPHome node name). The scanner source is
+    its MAC; for ESPHome proxies that BLE MAC can differ from the registered
+    network MAC, so fall back to matching the registry device by scanner name.
+    """
+    dev_reg = dr.async_get(hass)
+    device = dev_reg.async_get_device(
+        connections={
+            (dr.CONNECTION_NETWORK_MAC, dr.format_mac(source)),
+            (dr.CONNECTION_BLUETOOTH, source),
+        }
+    )
+    if device is None and scanner_name:
+        device = next(
+            (d for d in dev_reg.devices.values() if d.name == scanner_name),
+            None,
+        )
+    if device:
+        return device.name_by_user or device.name or scanner_name or source
+    return scanner_name or source
+
+
+def _proxy_options(
+    hass: HomeAssistant, address: str, current: str | None
+) -> list[dict[str, str]]:
+    """Selectable Bluetooth proxies that can currently reach this bed.
+
+    Always offers "Automatic" first, plus every connectable proxy seeing the
+    bed. A previously-pinned proxy that is not visible now stays selectable.
+    """
+    options: list[dict[str, str]] = [
+        {"value": PROXY_SOURCE_AUTO, "label": "Automatic (best signal)"}
+    ]
+    seen = {PROXY_SOURCE_AUTO}
+    try:
+        scanner_devices = bluetooth.async_scanner_devices_by_address(
+            hass, address, connectable=True
+        )
+    except Exception:  # noqa: BLE001 - be tolerant of core API differences
+        scanner_devices = []
+    for scanner_device in scanner_devices:
+        source = scanner_device.scanner.source
+        if source in seen:
+            continue
+        seen.add(source)
+        name = _proxy_friendly_name(hass, source, scanner_device.scanner.name)
+        rssi = getattr(scanner_device.advertisement, "rssi", None)
+        label = f"{name} ({rssi} dBm)" if rssi is not None else str(name)
+        options.append({"value": source, "label": label})
+    if current and current not in seen:
+        name = _proxy_friendly_name(hass, current, None)
+        options.append({"value": current, "label": f"{name} (currently unavailable)"})
+    return options
+
+
 def _get_related_entry_ids(hass: HomeAssistant, entry: ConfigEntry) -> list[str]:
     """Return entry IDs that share the same pair (this entry + group + other member if paired)."""
     entry_id = entry.entry_id
@@ -118,6 +179,18 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._other_beds: list[ConfigEntry] | None = None
         self._pair_calibrate: bool = True
         self._calibrate_on_add: bool = False
+        self._proxy_source: str = PROXY_SOURCE_AUTO
+
+    def _pending_address(self) -> str:
+        """Bed address for the flow in AA:BB:CC:DD:EE:FF form (or empty)."""
+        address = (
+            self._discovery_info.address
+            if self._discovery_info
+            else (self.unique_id or "")
+        )
+        if ":" not in address and len(address) == 12:
+            address = ":".join(address[i : i + 2] for i in range(0, 12, 2))
+        return address
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
@@ -395,22 +468,13 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle PIN entry - required to establish connection with the bed."""
         errors: dict[str, str] = {}
+        address = self._pending_address()
 
         if user_input is not None:
             pin = user_input.get("pin", "")
             if len(pin) != 4 or not pin.isdigit():
                 errors["base"] = "invalid_pin"
             else:
-                address = (
-                    self._discovery_info.address
-                    if self._discovery_info
-                    else (self.unique_id or "")
-                )
-                if ":" not in address and len(address) == 12:
-                    address = ":".join(
-                        address[i : i + 2] for i in range(0, 12, 2)
-                    )
-
                 bleak_device = bluetooth.async_ble_device_from_address(
                     self.hass, address, connectable=True
                 )
@@ -427,6 +491,9 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         self._address = address
                         self._pin = pin
                         self._device_name = (user_input.get("device_name") or "").strip()
+                        self._proxy_source = user_input.get(
+                            CONF_PROXY_SOURCE, PROXY_SOURCE_AUTO
+                        )
                         other_beds = [
                             e for e in self.hass.config_entries.async_entries(DOMAIN)
                             if _is_real_bed(e)
@@ -436,16 +503,30 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             return await self.async_step_pair_choice()
                         return await self.async_step_calibrate_now()
 
-        schema = vol.Schema(
-            {
-                vol.Required("pin", default=user_input.get("pin", "") if user_input else ""): str,
-                vol.Optional("device_name", default=user_input.get("device_name", "") if user_input else ""): str,
-            }
-        )
+        schema_dict: dict[Any, Any] = {
+            vol.Required("pin", default=user_input.get("pin", "") if user_input else ""): str,
+            vol.Optional("device_name", default=user_input.get("device_name", "") if user_input else ""): str,
+        }
+        # Offer the proxy choice up front only when at least one proxy sees the bed
+        proxy_options = _proxy_options(self.hass, address, None) if address else []
+        if len(proxy_options) > 1:
+            current_proxy = (
+                user_input.get(CONF_PROXY_SOURCE, PROXY_SOURCE_AUTO)
+                if user_input
+                else PROXY_SOURCE_AUTO
+            )
+            schema_dict[
+                vol.Required(CONF_PROXY_SOURCE, default=current_proxy)
+            ] = SelectSelector(
+                SelectSelectorConfig(
+                    options=proxy_options,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            )
 
         return self.async_show_form(
             step_id="pin",
-            data_schema=schema,
+            data_schema=vol.Schema(schema_dict),
             errors=errors,
         )
 
@@ -488,13 +569,16 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data[CONF_PAIR_CALIBRATE] = getattr(self, "_pair_calibrate", True)
         elif self._calibrate_on_add:
             data[CONF_CALIBRATE_ON_ADD] = True
+        options = {
+            CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
+            CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
+        }
+        if self._proxy_source != PROXY_SOURCE_AUTO:
+            options[CONF_PROXY_SOURCE] = self._proxy_source
         return self.async_create_entry(
             title=title,
             data=data,
-            options={
-                CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
-                CONF_FEET_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
-            },
+            options=options,
         )
 
     async def async_step_pair_choice(
@@ -622,9 +706,7 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
         """Build a selector of Bluetooth proxies that can reach this bed.
 
         Returns None for group entries or entries without an address (no
-        single BLE connection to pin). Always offers "Automatic" plus every
-        connectable proxy currently seeing the bed, and keeps a
-        previously-pinned proxy selectable even when it is not visible now.
+        single BLE connection to pin).
         """
         if self.config_entry.data.get(CONF_IS_GROUP):
             return None
@@ -632,32 +714,9 @@ class OctoBedOptionsFlow(config_entries.OptionsFlow):
         if not address:
             return None
 
-        options: list[dict[str, str]] = [
-            {"value": PROXY_SOURCE_AUTO, "label": "Automatic (best signal)"}
-        ]
-        seen = {PROXY_SOURCE_AUTO}
-        try:
-            scanner_devices = bluetooth.async_scanner_devices_by_address(
-                self.hass, address, connectable=True
-            )
-        except Exception:  # noqa: BLE001 - be tolerant of core API differences
-            scanner_devices = []
-        for scanner_device in scanner_devices:
-            source = scanner_device.scanner.source
-            if source in seen:
-                continue
-            seen.add(source)
-            name = scanner_device.scanner.name or source
-            rssi = getattr(scanner_device.advertisement, "rssi", None)
-            label = f"{name} ({rssi} dBm)" if rssi is not None else str(name)
-            options.append({"value": source, "label": label})
-
-        current = opts.get(CONF_PROXY_SOURCE, PROXY_SOURCE_AUTO)
-        if current not in seen:
-            options.append(
-                {"value": current, "label": f"{current} (currently unavailable)"}
-            )
-
+        options = _proxy_options(
+            self.hass, address, opts.get(CONF_PROXY_SOURCE, PROXY_SOURCE_AUTO)
+        )
         return SelectSelector(
             SelectSelectorConfig(
                 options=options,

@@ -28,7 +28,11 @@
         "description": "Die 4-stellige PIN wird benötigt, um eine Verbindung mit dem Octo-Bett herzustellen. Du findest sie in der Anleitung oder App des Betts.",
         "data": {
           "pin": "PIN (4 Ziffern)",
-          "device_name": "Gerätename"
+          "device_name": "Gerätename",
+          "proxy_source": "Bluetooth-Proxy"
+        },
+        "data_description": {
+          "proxy_source": "Welcher Bluetooth-Proxy/Adapter die Verbindung zu diesem Bett halten soll. Auf Automatisch lassen, damit Home Assistant das beste Signal wählt; dies kann später in den Optionen geändert werden."
         }
       },
       "pair_choice": {
@@ -86,7 +90,11 @@
         "data": {
           "head_full_travel_seconds": "Volle Laufzeit Kopfteil (Sekunden)",
           "feet_full_travel_seconds": "Volle Laufzeit Fußteil (Sekunden)",
-          "show_calibration_buttons": "Kalibrierungstasten anzeigen"
+          "show_calibration_buttons": "Kalibrierungstasten anzeigen",
+          "proxy_source": "Bluetooth-Proxy"
+        },
+        "data_description": {
+          "proxy_source": "Bindet dieses Bett an einen bestimmten Bluetooth-Proxy/Adapter, damit Home Assistant die Verbindung dort hält und nicht auf einen anderen Proxy verschiebt. Auf Automatisch lassen, außer das Bett verliert ständig die Verbindung."
         }
       }
     }

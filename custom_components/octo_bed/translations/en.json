@@ -28,7 +28,11 @@
         "description": "The 4-digit PIN is required to establish a connection with your Octo bed. You can find this in your bed's manual or app.",
         "data": {
           "pin": "PIN (4 digits)",
-          "device_name": "Device name"
+          "device_name": "Device name",
+          "proxy_source": "Bluetooth proxy"
+        },
+        "data_description": {
+          "proxy_source": "Which Bluetooth proxy/adapter should hold the connection to this bed. Leave on Automatic to let Home Assistant pick the best signal; you can change this later in the options."
         }
       },
       "pair_choice": {

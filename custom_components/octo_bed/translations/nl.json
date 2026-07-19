@@ -28,7 +28,11 @@
         "description": "De 4-cijferige pincode is nodig om verbinding te maken met je Octo-bed. Je vindt deze in de handleiding of app van het bed.",
         "data": {
           "pin": "Pincode (4 cijfers)",
-          "device_name": "Apparaatnaam"
+          "device_name": "Apparaatnaam",
+          "proxy_source": "Bluetooth-proxy"
+        },
+        "data_description": {
+          "proxy_source": "Welke Bluetooth-proxy/adapter de verbinding met dit bed moet verzorgen. Laat op Automatisch staan om Home Assistant het beste signaal te laten kiezen; je kunt dit later wijzigen in de opties."
         }
       },
       "pair_choice": {

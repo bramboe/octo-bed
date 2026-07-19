@@ -28,7 +28,11 @@
         "description": "Le code PIN à 4 chiffres est requis pour établir la connexion avec votre lit Octo. Vous le trouverez dans le manuel ou l'application du lit.",
         "data": {
           "pin": "Code PIN (4 chiffres)",
-          "device_name": "Nom de l'appareil"
+          "device_name": "Nom de l'appareil",
+          "proxy_source": "Proxy Bluetooth"
+        },
+        "data_description": {
+          "proxy_source": "Quel proxy/adaptateur Bluetooth doit maintenir la connexion avec ce lit. Laissez sur Automatique pour que Home Assistant choisisse le meilleur signal ; modifiable plus tard dans les options."
         }
       },
       "pair_choice": {
@@ -86,7 +90,11 @@
         "data": {
           "head_full_travel_seconds": "Course complète de la tête (secondes)",
           "feet_full_travel_seconds": "Course complète des pieds (secondes)",
-          "show_calibration_buttons": "Afficher les boutons d'étalonnage"
+          "show_calibration_buttons": "Afficher les boutons d'étalonnage",
+          "proxy_source": "Proxy Bluetooth"
+        },
+        "data_description": {
+          "proxy_source": "Fixe ce lit à un proxy/adaptateur Bluetooth spécifique afin que Home Assistant y maintienne la connexion au lieu de la déplacer vers un autre proxy. Laissez sur Automatique sauf si le lit se déconnecte sans cesse."
         }
       }
     }
