@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Callable, Coroutine, Any
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from bleak import BleakClient, BleakError
 from bleak.backends.characteristic import BleakGATTCharacteristic
@@ -140,7 +141,7 @@ class OctoBedClient:
             await asyncio.wait_for(
                 self._features_complete.wait(), FEATURE_DISCOVERY_TIMEOUT
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _LOGGER.debug("Feature discovery timed out; using defaults")
             return False
         except BleakError as err:
@@ -183,7 +184,7 @@ class OctoBedClient:
         for callback in self._connection_callbacks:
             try:
                 callback(connected)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.debug("Connection callback failed", exc_info=True)
 
     def _start_keepalive(self) -> None:
@@ -218,7 +219,7 @@ class OctoBedClient:
                     COMMAND_CHAR_UUID, encode_pin(self._pin), response=False
                 )
                 _LOGGER.debug("Keep-alive PIN pulse sent")
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 _LOGGER.debug("Keep-alive write failed (will retry): %s", err)
 
     def _on_disconnect(self, _client: BleakClient) -> None:
@@ -230,7 +231,7 @@ class OctoBedClient:
         if self._disconnect_callback:
             try:
                 self._disconnect_callback()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.debug("Disconnect callback failed", exc_info=True)
         self._schedule_reconnect()
 
@@ -256,7 +257,7 @@ class OctoBedClient:
                     return
             except asyncio.CancelledError:
                 raise
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 _LOGGER.debug("Reconnect attempt failed: %s", err)
 
     async def _establish(self) -> None:
@@ -275,7 +276,7 @@ class OctoBedClient:
             )
         except asyncio.CancelledError:
             raise
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             _LOGGER.debug(
                 "establish_connection failed, trying direct BleakClient: %s", err
             )
@@ -287,7 +288,7 @@ class OctoBedClient:
             await self._client.start_notify(
                 COMMAND_CHAR_UUID, self._notification_handler
             )
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             # Notifications drive re-auth requests and feature discovery but
             # the bed can still be controlled without them.
             _LOGGER.debug("Could not subscribe to notifications: %s", err)
@@ -306,8 +307,8 @@ class OctoBedClient:
                 return True
             except asyncio.CancelledError:
                 raise  # do not treat task cancellation as connection failure
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.error("Failed to connect to Octo bed: %s", err)
+            except Exception:
+                _LOGGER.exception("Failed to connect to Octo bed")
                 return False
 
     async def connect_and_verify_pin(self) -> bool:
@@ -325,7 +326,7 @@ class OctoBedClient:
             try:
                 await self.send_pin()
                 result = await asyncio.wait_for(pin_result, 8.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 _LOGGER.warning("PIN verification timed out waiting for bed response")
                 result = False
             finally:
@@ -340,8 +341,8 @@ class OctoBedClient:
             return True
         except asyncio.CancelledError:
             raise
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.error("Failed to connect to Octo bed: %s", err)
+        except Exception:
+            _LOGGER.exception("Failed to connect to Octo bed")
             return False
 
     _pin_verify_future: asyncio.Future[bool] | None = None
@@ -424,8 +425,8 @@ class OctoBedClient:
             else:
                 _LOGGER.debug("Sent command: %s", data.hex())
             return True
-        except BleakError as err:
-            _LOGGER.error("Failed to send command: %s", err)
+        except BleakError:
+            _LOGGER.exception("Failed to send command")
             return False
 
     async def send_pin(self) -> bool:
@@ -538,7 +539,7 @@ class OctoBedClient:
         except asyncio.CancelledError:
             try:
                 await self.send_stop()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.debug("Failed to send stop after cancelling movement", exc_info=True)
 
     # --------------------------------------------------------------- calibration
@@ -548,7 +549,7 @@ class OctoBedClient:
         for callback in self._calibration_state_callbacks:
             try:
                 callback()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.debug("Calibration state callback error", exc_info=True)
 
     def register_calibration_state_callback(self, callback: Callable[[], None]) -> None:
@@ -701,12 +702,12 @@ class OctoBedClient:
                 await method()
                 elapsed = time.monotonic() - start_time
                 progress = min(1.0, elapsed / seconds)
-                setter(int(round(100 * (1.0 - progress))))
+                setter(round(100 * (1.0 - progress)))
                 await asyncio.sleep(0.1)
         except asyncio.CancelledError:
             elapsed = time.monotonic() - start_time
             progress = min(1.0, elapsed / seconds)
-            setter(int(round(100 * (1.0 - progress))))
+            setter(round(100 * (1.0 - progress)))
             raise
         finally:
             await self.send_stop()
@@ -743,7 +744,7 @@ class OctoBedClient:
 
     def get_both_position(self) -> int:
         """Get current 'both' position (average of head and feet)."""
-        return int(round((self._head_position + self._feet_position) / 2.0))
+        return round((self._head_position + self._feet_position) / 2.0)
 
     async def run_to_position(
         self,
@@ -771,7 +772,7 @@ class OctoBedClient:
                     elapsed = time.monotonic() - start
                     frac = min(1.0, elapsed / duration) if duration > 0 else 1.0
                     self.set_head_position(
-                        int(round(head_current + (head_target - head_current) * frac))
+                        round(head_current + (head_target - head_current) * frac)
                     )
                     await asyncio.sleep(interval)
             except asyncio.CancelledError:
@@ -779,7 +780,7 @@ class OctoBedClient:
                 # record how far we actually got instead of snapping to target.
                 frac = min(1.0, (time.monotonic() - start) / duration) if duration > 0 else 1.0
                 self.set_head_position(
-                    int(round(head_current + (head_target - head_current) * frac))
+                    round(head_current + (head_target - head_current) * frac)
                 )
                 raise
             await self.send_stop()
@@ -797,13 +798,13 @@ class OctoBedClient:
                     elapsed = time.monotonic() - start
                     frac = min(1.0, elapsed / duration) if duration > 0 else 1.0
                     self.set_feet_position(
-                        int(round(feet_current + (feet_target - feet_current) * frac))
+                        round(feet_current + (feet_target - feet_current) * frac)
                     )
                     await asyncio.sleep(interval)
             except asyncio.CancelledError:
                 frac = min(1.0, (time.monotonic() - start) / duration) if duration > 0 else 1.0
                 self.set_feet_position(
-                    int(round(feet_current + (feet_target - feet_current) * frac))
+                    round(feet_current + (feet_target - feet_current) * frac)
                 )
                 raise
             await self.send_stop()
@@ -841,7 +842,7 @@ class OctoBedClient:
         for callback in self._position_callbacks:
             try:
                 callback(part, position)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.debug("Position callback failed", exc_info=True)
 
     async def stop(self) -> bool:

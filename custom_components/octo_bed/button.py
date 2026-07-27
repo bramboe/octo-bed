@@ -6,10 +6,9 @@ import asyncio
 import logging
 
 from homeassistant.components.button import ButtonEntity
-from homeassistant.core import callback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -525,9 +524,9 @@ class OctoBedCompleteCalibrationButton(ButtonEntity):
         # Save duration as full travel for this part
         options = dict(self._entry.options)
         if part == "head":
-            options[CONF_HEAD_FULL_TRAVEL_SECONDS] = int(round(duration_seconds))
+            options[CONF_HEAD_FULL_TRAVEL_SECONDS] = round(duration_seconds)
         else:
-            options[CONF_FEET_FULL_TRAVEL_SECONDS] = int(round(duration_seconds))
+            options[CONF_FEET_FULL_TRAVEL_SECONDS] = round(duration_seconds)
         self.hass.config_entries.async_update_entry(self._entry, options=options)
         # When paired (group): keep head/feet travel in sync on both member beds
         if self._entry.data.get(CONF_IS_GROUP):
@@ -662,9 +661,7 @@ class OctoBedSyncToOtherButton(ButtonEntity):
             return False
         if self._calibration_differs_from_other():
             return False
-        if self._positions_already_match():
-            return False
-        return True
+        return not self._positions_already_match()
 
     @property
     def extra_state_attributes(self) -> dict[str, str | None]:
@@ -770,9 +767,7 @@ class OctoBedSyncToBedButton(ButtonEntity):
             return False
         if self._source_at_zero():
             return False
-        if self._both_beds_already_at_source_position():
-            return False
-        return True
+        return not self._both_beds_already_at_source_position()
 
     @property
     def extra_state_attributes(self) -> dict[str, str | None]:

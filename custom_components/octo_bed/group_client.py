@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .octo_bed_client import OctoBedClient
 
@@ -71,12 +72,12 @@ class GroupOctoBedClient:
     def get_head_position(self) -> int:
         if not self._clients:
             return 0
-        return int(round(sum(c.get_head_position() for c in self._clients) / len(self._clients)))
+        return round(sum(c.get_head_position() for c in self._clients) / len(self._clients))
 
     def get_feet_position(self) -> int:
         if not self._clients:
             return 0
-        return int(round(sum(c.get_feet_position() for c in self._clients) / len(self._clients)))
+        return round(sum(c.get_feet_position() for c in self._clients) / len(self._clients))
 
     def get_min_head_position(self) -> int:
         """Minimum head position across beds (for duration so lagging bed reaches target)."""
@@ -105,7 +106,7 @@ class GroupOctoBedClient:
     def get_both_position(self) -> int:
         if not self._clients:
             return 0
-        return int(round(sum(c.get_both_position() for c in self._clients) / len(self._clients)))
+        return round(sum(c.get_both_position() for c in self._clients) / len(self._clients))
 
     def register_position_callback(self, callback: Callable[[str, int], None]) -> None:
         for c in self._clients:

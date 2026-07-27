@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from homeassistant.components import bluetooth
-from homeassistant.config_entries import ConfigEntry, SOURCE_IGNORE, SOURCE_IMPORT
+from homeassistant.config_entries import SOURCE_IGNORE, SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
@@ -141,11 +140,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         device_resolver=_get_device,
     )
 
-    try:
-        if not await client.connect():
-            raise ConfigEntryNotReady(f"Failed to connect to Octo bed at {address}")
-    except asyncio.CancelledError:
-        raise  # allow HA to handle setup cancellation (e.g. reload during connect)
+    # A CancelledError here (e.g. reload during connect) propagates so HA can
+    # handle setup cancellation.
+    if not await client.connect():
+        raise ConfigEntryNotReady(f"Failed to connect to Octo bed at {address}")
 
     # Best effort: query bed capabilities (memory presets, synchro, RGBW light)
     await client.discover_features()
@@ -256,8 +254,8 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         for entry_id in member_ids:
             try:
                 await hass.config_entries.async_reload(entry_id)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception:
+                _LOGGER.debug("Failed to reload member bed %s", entry_id, exc_info=True)
         return
     for other in hass.config_entries.async_entries(DOMAIN):
         if not other.data.get(CONF_IS_GROUP):

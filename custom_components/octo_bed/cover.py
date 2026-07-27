@@ -7,13 +7,12 @@ import logging
 import time
 from typing import Any
 
+import voluptuous as vol
 from homeassistant.components.cover import (
     ATTR_POSITION,
     CoverEntity,
     CoverEntityFeature,
 )
-import voluptuous as vol
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_platform
@@ -306,7 +305,7 @@ class OctoBedCover(CoverEntity, RestoreEntity):
                 now = time.monotonic()
                 elapsed = now - start_time
                 frac = max(0.0, min(1.0, elapsed / duration)) if duration > 0 else 1.0
-                new_pos = int(round(current + (target - current) * frac))
+                new_pos = round(current + (target - current) * frac)
 
                 if self._cover_type == "head":
                     self._client.set_head_position(new_pos)
@@ -322,7 +321,7 @@ class OctoBedCover(CoverEntity, RestoreEntity):
             cancelled = True
             try:
                 await self._client.send_stop()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.debug("Failed to send stop after cover move cancelled", exc_info=True)
             raise
         finally:
@@ -331,12 +330,12 @@ class OctoBedCover(CoverEntity, RestoreEntity):
                 now = time.monotonic()
                 elapsed = now - start_time
                 frac = max(0.0, min(1.0, elapsed / duration)) if duration > 0 else 0.0
-                final_pos = int(round(current + (target - current) * frac))
+                final_pos = round(current + (target - current) * frac)
             else:
                 final_pos = target
                 try:
                     await self._client.send_stop()
-                except Exception:  # noqa: BLE001
+                except Exception:
                     _LOGGER.debug("Failed to send stop after cover move", exc_info=True)
 
             if self._cover_type == "head":

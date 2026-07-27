@@ -1,0 +1,17 @@
+# Ruff configuration for the Octo Bed integration.
+# An explicit, pinned rule set keeps CI deterministic: without this, the
+# ruff-action installs the latest ruff and its evolving default rules would
+# periodically re-break the scheduled validation run.
+target-version = "py312"
+line-length = 88
+
+[lint]
+select = ["F", "I", "UP", "SIM", "RUF", "TRY", "S"]
+ignore = [
+    "E501",   # long lines are acceptable in this codebase
+    "TRY003", # verbose exception messages are fine here
+    "TRY300", # moving returns into an else block is not always clearer
+    "SIM105", # explicit try/except is clearer than contextlib.suppress here
+    "RUF002", # ambiguous unicode characters in docstrings (e.g. degree signs)
+    "RUF006", # background tasks are intentionally fire-and-forget
+]

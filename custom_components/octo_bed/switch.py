@@ -250,7 +250,7 @@ class OctoBedMovementSwitch(SwitchEntity):
 
                 elapsed = time.monotonic() - start_time
                 progress = min(1.0, elapsed / full_travel)
-                position_setter(int(round(start_position + position_delta * progress)))
+                position_setter(round(start_position + position_delta * progress))
 
                 await asyncio.sleep(0.1)
         except asyncio.CancelledError:
@@ -258,13 +258,13 @@ class OctoBedMovementSwitch(SwitchEntity):
         finally:
             elapsed = time.monotonic() - start_time
             progress = min(1.0, elapsed / full_travel)
-            position_setter(int(round(start_position + position_delta * progress)))
+            position_setter(round(start_position + position_delta * progress))
 
             # If we reached full-travel time (not cancelled), send stop command.
             if not cancelled:
                 try:
                     await self._client.send_stop()
-                except Exception:  # noqa: BLE001
+                except Exception:
                     _LOGGER.debug("Failed to send stop after switch move", exc_info=True)
 
             self._is_on = False

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from typing import ClassVar
+
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
@@ -63,7 +65,7 @@ class OctoBedCalibrationStatusSensor(SensorEntity):
     _attr_icon = "mdi:ruler"
     _attr_translation_key = "calibration_status"
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = [
+    _attr_options: ClassVar[list[str]] = [
         "idle",
         "preparing_head",
         "preparing_feet",
@@ -238,7 +240,7 @@ class OctoBedConnectionStatusSensor(OctoBedDiagnosticSensor):
     _attr_icon = "mdi:bluetooth-connect"
     _attr_should_poll = False
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = ["connected", "disconnected"]
+    _attr_options: ClassVar[list[str]] = ["connected", "disconnected"]
 
     def __init__(self, client: OctoBedClient, device_info: DeviceInfo, unique_id_prefix: str) -> None:
         """Initialize the connection status sensor."""

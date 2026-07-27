@@ -6,7 +6,6 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
@@ -83,9 +82,7 @@ def _is_octo_bed(info: BluetoothServiceInfoBleak) -> bool:
     """Return True if this discovery looks like an Octo bed."""
     if info.name and info.name.strip() in OCTO_BED_NAMES:
         return True
-    if info.service_uuids and OCTO_BED_SERVICE_UUID in info.service_uuids:
-        return True
-    return False
+    return bool(info.service_uuids and OCTO_BED_SERVICE_UUID in info.service_uuids)
 
 
 def _proxy_friendly_name(
@@ -131,7 +128,7 @@ def _proxy_options(
         scanner_devices = bluetooth.async_scanner_devices_by_address(
             hass, address, connectable=True
         )
-    except Exception:  # noqa: BLE001 - be tolerant of core API differences
+    except Exception:
         scanner_devices = []
     for scanner_device in scanner_devices:
         source = scanner_device.scanner.source
