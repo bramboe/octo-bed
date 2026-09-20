@@ -21,6 +21,7 @@ from .const import (
     CONF_HEAD_FULL_TRAVEL_SECONDS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
+    MOVEMENT_COMMAND_INTERVAL,
 )
 from .octo_bed_client import OctoBedClient
 
@@ -252,7 +253,7 @@ class OctoBedMovementSwitch(SwitchEntity):
                 progress = min(1.0, elapsed / full_travel)
                 position_setter(round(start_position + position_delta * progress))
 
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(MOVEMENT_COMMAND_INTERVAL)
         except asyncio.CancelledError:
             cancelled = True
         finally:

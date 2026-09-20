@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from homeassistant.components import bluetooth
@@ -140,14 +141,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         device_resolver=_get_device,
     )
 
-    # A CancelledError here (e.g. reload during connect) propagates so HA can
-    # handle setup cancellation.
-    if not await client.connect():
-        raise ConfigEntryNotReady(f"Failed to connect to Octo bed at {address}")
-
-    # Best effort: query bed capabilities (memory presets, synchro, RGBW light)
-    await client.discover_features()
-
+    # Register the client before connecting so a paired "Both beds" group entry
+    # finds its members right away and does not sit in ConfigEntryNotReady while
+    # the bed is still connecting.
     hass.data[DOMAIN][entry.entry_id] = client
 
     # After adding 2nd bed with "pair": create the group entry via an import flow
@@ -163,19 +159,47 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # User opted in during the add flow: start calibrating the head section.
+    # User opted in during the add flow: calibrate the head once connected.
     # Strip the flag first so a reload/restart never re-triggers the movement.
-    if entry.data.get(CONF_CALIBRATE_ON_ADD):
+    calibrate_on_add = bool(entry.data.get(CONF_CALIBRATE_ON_ADD))
+    if calibrate_on_add:
         new_data = {k: v for k, v in entry.data.items() if k != CONF_CALIBRATE_ON_ADD}
         hass.config_entries.async_update_entry(entry, data=new_data)
-        down_seconds = entry.options.get(
-            CONF_HEAD_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
-        )
-        _LOGGER.info(
-            "Starting initial calibration (head) for %s as requested during setup",
-            entry.title,
-        )
-        hass.async_create_task(client.start_calibration("head", down_seconds))
+
+    # Connect in the background so a sleeping or out-of-range bed can never hold
+    # up Home Assistant startup. Entities are created immediately and report as
+    # unavailable until the connection is up; if the first attempt fails, the
+    # client's own backoff loop keeps retrying.
+    async def _async_connect_in_background() -> None:
+        try:
+            if not await client.connect():
+                _LOGGER.warning(
+                    "Initial connection to Octo bed %s failed; retrying in the "
+                    "background",
+                    address,
+                )
+                client.async_ensure_reconnecting()
+                return
+            # Best effort: query capabilities (memory presets, synchro, RGBW).
+            await client.discover_features()
+            if calibrate_on_add:
+                down_seconds = entry.options.get(
+                    CONF_HEAD_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS
+                )
+                _LOGGER.info(
+                    "Starting initial calibration (head) for %s as requested "
+                    "during setup",
+                    entry.title,
+                )
+                await client.start_calibration("head", down_seconds)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            _LOGGER.exception("Background setup for Octo bed %s failed", address)
+
+    entry.async_create_background_task(
+        hass, _async_connect_in_background(), f"octo_bed_connect_{entry.entry_id}"
+    )
 
     return True
 

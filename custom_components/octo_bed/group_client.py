@@ -3,10 +3,37 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from typing import Any
 
 from .octo_bed_client import OctoBedClient
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _all_true(results: list[Any]) -> bool:
+    """Return True only when every gathered result is exactly True.
+
+    Results come from asyncio.gather(..., return_exceptions=True), so a member
+    that raised shows up as an Exception instance; it is logged and counts as a
+    failure, but never propagates and never aborts the other members.
+    """
+    ok = True
+    for result in results:
+        if isinstance(result, Exception):
+            _LOGGER.debug("Group member command failed: %s", result)
+            ok = False
+        elif result is not True:
+            ok = False
+    return ok
+
+
+def _log_member_errors(results: list[Any], action: str) -> None:
+    """Log any exceptions returned by a gather() over member clients."""
+    for result in results:
+        if isinstance(result, Exception):
+            _LOGGER.warning("Group %s failed on a member bed: %s", action, result)
 
 
 class GroupOctoBedClient:
@@ -16,8 +43,19 @@ class GroupOctoBedClient:
         self._clients = list(clients)
 
     async def connect(self) -> bool:
-        results = await asyncio.gather(*[c.connect() for c in self._clients])
-        return all(results)
+        # Connect members one at a time: gentler on a shared Bluetooth proxy
+        # than opening both connections at once, and one failure cannot cancel
+        # the other bed's attempt.
+        ok = True
+        for client in self._clients:
+            try:
+                if not await client.connect():
+                    ok = False
+            except Exception as err:
+                # Never let one bed's failure abort the other's connect attempt.
+                _LOGGER.warning("Group connect failed on a member bed: %s", err)
+                ok = False
+        return ok
 
     async def disconnect(self) -> None:
         # Member clients belong to their own config entries; the group never
@@ -25,8 +63,11 @@ class GroupOctoBedClient:
         return
 
     async def ensure_connected(self) -> bool:
-        results = await asyncio.gather(*[c.ensure_connected() for c in self._clients])
-        return all(results)
+        results = await asyncio.gather(
+            *[c.ensure_connected() for c in self._clients],
+            return_exceptions=True,
+        )
+        return _all_true(results)
 
     def is_connected(self) -> bool:
         return all(c.is_connected() for c in self._clients)
@@ -57,15 +98,17 @@ class GroupOctoBedClient:
 
     async def recall_memory_preset(self, slot: int) -> bool:
         results = await asyncio.gather(
-            *[c.recall_memory_preset(slot) for c in self._clients]
+            *[c.recall_memory_preset(slot) for c in self._clients],
+            return_exceptions=True,
         )
-        return all(results)
+        return _all_true(results)
 
     async def save_memory_preset(self, slot: int) -> bool:
         results = await asyncio.gather(
-            *[c.save_memory_preset(slot) for c in self._clients]
+            *[c.save_memory_preset(slot) for c in self._clients],
+            return_exceptions=True,
         )
-        return all(results)
+        return _all_true(results)
 
     # ------------------------------------------------------------------ position
 
@@ -136,36 +179,53 @@ class GroupOctoBedClient:
     # ------------------------------------------------------------------ movement
 
     async def head_up(self) -> bool:
-        results = await asyncio.gather(*[c.head_up() for c in self._clients])
-        return all(results)
+        results = await asyncio.gather(
+            *[c.head_up() for c in self._clients], return_exceptions=True
+        )
+        return _all_true(results)
 
     async def head_down(self) -> bool:
-        results = await asyncio.gather(*[c.head_down() for c in self._clients])
-        return all(results)
+        results = await asyncio.gather(
+            *[c.head_down() for c in self._clients], return_exceptions=True
+        )
+        return _all_true(results)
 
     async def feet_up(self) -> bool:
-        results = await asyncio.gather(*[c.feet_up() for c in self._clients])
-        return all(results)
+        results = await asyncio.gather(
+            *[c.feet_up() for c in self._clients], return_exceptions=True
+        )
+        return _all_true(results)
 
     async def feet_down(self) -> bool:
-        results = await asyncio.gather(*[c.feet_down() for c in self._clients])
-        return all(results)
+        results = await asyncio.gather(
+            *[c.feet_down() for c in self._clients], return_exceptions=True
+        )
+        return _all_true(results)
 
     async def both_up(self) -> bool:
-        results = await asyncio.gather(*[c.both_up() for c in self._clients])
-        return all(results)
+        results = await asyncio.gather(
+            *[c.both_up() for c in self._clients], return_exceptions=True
+        )
+        return _all_true(results)
 
     async def both_down(self) -> bool:
-        results = await asyncio.gather(*[c.both_down() for c in self._clients])
-        return all(results)
+        results = await asyncio.gather(
+            *[c.both_down() for c in self._clients], return_exceptions=True
+        )
+        return _all_true(results)
 
     async def stop(self) -> bool:
-        results = await asyncio.gather(*[c.stop() for c in self._clients])
-        return all(results)
+        # Stop must reach every bed even if one errors, so failures are isolated.
+        results = await asyncio.gather(
+            *[c.stop() for c in self._clients], return_exceptions=True
+        )
+        return _all_true(results)
 
     async def send_stop(self) -> bool:
-        results = await asyncio.gather(*[c.send_stop() for c in self._clients])
-        return all(results)
+        results = await asyncio.gather(
+            *[c.send_stop() for c in self._clients], return_exceptions=True
+        )
+        return _all_true(results)
 
     def register_movement_task(self, task: asyncio.Task[None]) -> None:
         for c in self._clients:
@@ -176,39 +236,56 @@ class GroupOctoBedClient:
             c.register_active_movement(part, task)
 
     async def light_on(self) -> bool:
-        results = await asyncio.gather(*[c.light_on() for c in self._clients])
-        return all(results)
+        results = await asyncio.gather(
+            *[c.light_on() for c in self._clients], return_exceptions=True
+        )
+        return _all_true(results)
 
     async def light_off(self) -> bool:
-        results = await asyncio.gather(*[c.light_off() for c in self._clients])
-        return all(results)
+        results = await asyncio.gather(
+            *[c.light_off() for c in self._clients], return_exceptions=True
+        )
+        return _all_true(results)
 
     async def set_light_color_rgbw(self, rgbw: tuple[int, int, int, int]) -> bool:
         results = await asyncio.gather(
-            *[c.set_light_color_rgbw(rgbw) for c in self._clients]
+            *[c.set_light_color_rgbw(rgbw) for c in self._clients],
+            return_exceptions=True,
         )
-        return all(results)
+        return _all_true(results)
 
     # Calibration on group: run on both beds so they stay in sync
     async def start_calibration(self, part: str, down_seconds: float = 30.0) -> None:
         """Start calibration for this part on all beds."""
-        await asyncio.gather(
-            *[c.start_calibration(part, down_seconds) for c in self._clients]
+        results = await asyncio.gather(
+            *[c.start_calibration(part, down_seconds) for c in self._clients],
+            return_exceptions=True,
         )
+        _log_member_errors(results, "start_calibration")
 
     async def cancel_calibration(self) -> bool:
         """Abort calibration on all beds without saving."""
         results = await asyncio.gather(
-            *[c.cancel_calibration() for c in self._clients]
+            *[c.cancel_calibration() for c in self._clients],
+            return_exceptions=True,
         )
-        return any(results)
+        return any(r is True for r in results)
 
     async def complete_calibration(self) -> tuple[str | None, float]:
         """Complete calibration on all beds; use max duration for return movement."""
-        results = await asyncio.gather(*[c.complete_calibration() for c in self._clients])
+        results = await asyncio.gather(
+            *[c.complete_calibration() for c in self._clients],
+            return_exceptions=True,
+        )
         part = None
         duration = 0.0
-        for p, d in results:
+        for result in results:
+            if isinstance(result, Exception):
+                _LOGGER.warning(
+                    "Group complete_calibration failed on a member bed: %s", result
+                )
+                continue
+            p, d = result
             if p is not None and d > 0:
                 part = p
                 duration = max(duration, d)
@@ -216,7 +293,11 @@ class GroupOctoBedClient:
 
     async def move_part_down_for_seconds(self, part: str, seconds: float) -> None:
         """Move this part down on all beds for the given duration."""
-        await asyncio.gather(*[c.move_part_down_for_seconds(part, seconds) for c in self._clients])
+        results = await asyncio.gather(
+            *[c.move_part_down_for_seconds(part, seconds) for c in self._clients],
+            return_exceptions=True,
+        )
+        _log_member_errors(results, "move_part_down_for_seconds")
 
     def set_head_position(self, position: int) -> None:
         for c in self._clients:
@@ -238,12 +319,14 @@ class GroupOctoBedClient:
         feet_travel_seconds: float,
     ) -> None:
         """Move all beds to the same head/feet position."""
-        await asyncio.gather(
+        results = await asyncio.gather(
             *[
                 c.run_to_position(
                     head_target, feet_target,
                     head_travel_seconds, feet_travel_seconds,
                 )
                 for c in self._clients
-            ]
+            ],
+            return_exceptions=True,
         )
+        _log_member_errors(results, "run_to_position")

@@ -25,6 +25,7 @@ from .const import (
     CMD_LIGHT_ON,
     CMD_STOP,
     COMMAND_CHAR_UUID,
+    MOVEMENT_COMMAND_INTERVAL,
     NOTIFY_PIN_ACCEPTED,
     NOTIFY_PIN_REJECTED,
     NOTIFY_PIN_REQUIRED,
@@ -61,6 +62,10 @@ class OctoBedClient:
         self._disconnect_callback = disconnect_callback
         self._device_resolver = device_resolver
         self._intentional_disconnect = False
+        # Set by _on_disconnect so a drop that arrives while a reconnect attempt
+        # is already in flight is never lost (the running loop notices it and
+        # keeps retrying instead of declaring a stale success).
+        self._reconnect_requested = False
         self._keepalive_task: asyncio.Task[None] | None = None
         self._reconnect_task: asyncio.Task[None] | None = None
         self._pin_task: asyncio.Task[bool] | None = None
@@ -228,6 +233,7 @@ class OctoBedClient:
         self._notify_connection_change(False)
         if self._intentional_disconnect:
             return
+        self._reconnect_requested = True
         if self._disconnect_callback:
             try:
                 self._disconnect_callback()
@@ -240,25 +246,49 @@ class OctoBedClient:
             return
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
+    def async_ensure_reconnecting(self) -> None:
+        """Start the backoff reconnect loop if it is not already running.
+
+        Used when the very first connection attempt (during setup) fails: there
+        was no live connection to drop, so ``_on_disconnect`` never fired to
+        schedule a retry. This lets the client recover on its own in the
+        background instead of staying disconnected until a reload.
+        """
+        if self._intentional_disconnect:
+            return
+        self._schedule_reconnect()
+
     async def _reconnect_loop(self) -> None:
-        """Reconnect with backoff after an unexpected disconnect."""
-        for attempt, delay in enumerate(
-            list(RECONNECT_DELAYS) + [RECONNECT_DELAYS[-1]] * 1000, start=1
-        ):
+        """Reconnect with backoff after an unexpected disconnect.
+
+        Runs until the connection is genuinely restored or an intentional
+        disconnect is requested. A drop that arrives mid-attempt sets
+        ``_reconnect_requested`` (see _on_disconnect), which this loop honours so
+        it never exits on a connection that has already gone away again.
+        """
+        attempt = 0
+        while not self._intentional_disconnect:
+            self._reconnect_requested = False
+            attempt += 1
+            delay = RECONNECT_DELAYS[min(attempt - 1, len(RECONNECT_DELAYS) - 1)]
             await asyncio.sleep(delay)
             if self._intentional_disconnect:
                 return
-            if self.is_connected():
+            if self.is_connected() and not self._reconnect_requested:
                 return
             _LOGGER.debug("Reconnect attempt %d to %s", attempt, self._device.address)
             try:
-                if await self.connect():
-                    _LOGGER.info("Reconnected to Octo bed at %s", self._device.address)
-                    return
+                connected = await self.connect()
             except asyncio.CancelledError:
                 raise
             except Exception as err:
                 _LOGGER.debug("Reconnect attempt failed: %s", err)
+                continue
+            # Only declare success when the link is genuinely up AND no fresh
+            # disconnect arrived while we were connecting.
+            if connected and self.is_connected() and not self._reconnect_requested:
+                _LOGGER.info("Reconnected to Octo bed at %s", self._device.address)
+                return
 
     async def _establish(self) -> None:
         """Create the BLE connection and subscribe to notifications."""
@@ -266,32 +296,40 @@ class OctoBedClient:
             fresh = await self._device_resolver()
             if fresh:
                 self._device = fresh
-        try:
-            self._client = await establish_connection(
-                BleakClientWithServiceCache,
-                self._device,
-                "Octo Bed",
-                disconnected_callback=self._on_disconnect,
-                timeout=15.0,
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception as err:
-            _LOGGER.debug(
-                "establish_connection failed, trying direct BleakClient: %s", err
-            )
-            direct = BleakClient(self._device, disconnected_callback=self._on_disconnect)
-            await direct.connect(timeout=15.0)
-            self._client = direct
+        # establish_connection handles both the local adapter and ESPHome
+        # Bluetooth proxies, with its own retry and connection-slot management.
+        # The previous direct-BleakClient fallback could not reach proxy-only
+        # beds and only added another 15 s to the worst-case connect time, so it
+        # has been removed; failures propagate to connect() which returns False.
+        self._client = await establish_connection(
+            BleakClientWithServiceCache,
+            self._device,
+            "Octo Bed",
+            disconnected_callback=self._on_disconnect,
+            timeout=15.0,
+        )
         _LOGGER.debug("Connected to Octo bed at %s", self._device.address)
         try:
             await self._client.start_notify(
                 COMMAND_CHAR_UUID, self._notification_handler
             )
         except Exception as err:
-            # Notifications drive re-auth requests and feature discovery but
-            # the bed can still be controlled without them.
-            _LOGGER.debug("Could not subscribe to notifications: %s", err)
+            # Notifications drive PIN re-auth and feature discovery. When the
+            # subscribe fails the link is not usable -- e.g. the bed rejects it
+            # with "insufficient authorization" and drops the connection. Tear
+            # it down and fail the attempt instead of proceeding to send_pin()
+            # on a dying link (which previously re-entered connect() via
+            # ensure_connected and deadlocked on the connect lock). The
+            # reconnect loop then retries cleanly.
+            _LOGGER.debug("Notify subscribe failed, aborting connection: %s", err)
+            client = self._client
+            self._client = None
+            if client is not None:
+                try:
+                    await client.disconnect()
+                except Exception as disc_err:
+                    _LOGGER.debug("Teardown disconnect failed: %s", disc_err)
+            raise ConnectionError(f"notify subscribe failed: {err}") from err
 
     async def connect(self) -> bool:
         """Connect to the bed and authenticate with PIN."""
@@ -307,6 +345,12 @@ class OctoBedClient:
                 return True
             except asyncio.CancelledError:
                 raise  # do not treat task cancellation as connection failure
+            except ConnectionError as err:
+                # Expected, transient BLE failure (bed asleep, or notify/auth
+                # rejected and link dropped). Logged briefly; the reconnect loop
+                # retries. Avoids an ERROR traceback on every backoff attempt.
+                _LOGGER.debug("Connect attempt failed: %s", err)
+                return False
             except Exception:
                 _LOGGER.exception("Failed to connect to Octo bed")
                 return False
@@ -363,6 +407,12 @@ class OctoBedClient:
             return True
         if self._intentional_disconnect:
             return False
+        # A connect() is already in progress (we may be inside it, e.g. send_pin
+        # runs during the initial handshake). Never re-enter connect(): the
+        # connect lock is not reentrant and awaiting it here would deadlock the
+        # very task that holds it. Report the current state instead.
+        if self._connect_lock.locked():
+            return bool(self._client and self._client.is_connected)
         _LOGGER.info("Reconnecting to Octo bed at %s", self._device.address)
         return await self.connect()
 
@@ -603,7 +653,7 @@ class OctoBedClient:
                 if not await down():
                     _LOGGER.warning("Calibration for %s aborted: bed not reachable", part)
                     return
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(MOVEMENT_COMMAND_INTERVAL)
             await self.send_stop()
             setter(0)
 
@@ -616,7 +666,7 @@ class OctoBedClient:
                 if not await up():
                     _LOGGER.warning("Calibration for %s aborted: bed not reachable", part)
                     return
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(MOVEMENT_COMMAND_INTERVAL)
             _LOGGER.warning(
                 "Calibration session for %s not completed within %d s; aborted without saving",
                 part,
@@ -703,7 +753,7 @@ class OctoBedClient:
                 elapsed = time.monotonic() - start_time
                 progress = min(1.0, elapsed / seconds)
                 setter(round(100 * (1.0 - progress)))
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(MOVEMENT_COMMAND_INTERVAL)
         except asyncio.CancelledError:
             elapsed = time.monotonic() - start_time
             progress = min(1.0, elapsed / seconds)

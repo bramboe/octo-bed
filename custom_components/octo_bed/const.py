@@ -30,6 +30,13 @@ PROXY_SOURCE_AUTO = "auto"
 DEFAULT_FULL_TRAVEL_SECONDS = 30
 SOFT_PRESET_SLOTS = 3
 
+# Interval between repeated movement commands during hold/calibration loops.
+# The bed emits commands roughly every 375 ms (from packet captures); sending
+# faster only adds BLE write pressure, which matters most when two beds share a
+# single Bluetooth proxy. Position is derived from elapsed time, not command
+# count, so a wider interval does not reduce positioning accuracy.
+MOVEMENT_COMMAND_INTERVAL = 0.375
+
 # The bed drops the BLE connection after ~30 s without PIN re-authentication,
 # so refresh well within that window.
 PIN_KEEPALIVE_SECONDS = 25
