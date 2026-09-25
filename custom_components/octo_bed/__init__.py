@@ -7,8 +7,8 @@ import logging
 
 from homeassistant.components import bluetooth
 from homeassistant.config_entries import SOURCE_IGNORE, SOURCE_IMPORT, ConfigEntry
-from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
+from homeassistant.core import Event, HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from .const import (
@@ -199,6 +199,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_create_background_task(
         hass, _async_connect_in_background(), f"octo_bed_connect_{entry.entry_id}"
+    )
+
+    # Stop the keep-alive and reconnect loops as soon as Home Assistant begins
+    # shutting down, so a bed that is out of reach can never delay a restart.
+    async def _async_on_stop(_event: Event) -> None:
+        try:
+            async with asyncio.timeout(5):
+                await client.disconnect()
+        except Exception:
+            _LOGGER.debug("Disconnect of Octo bed %s on stop failed", address)
+
+    entry.async_on_unload(
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_on_stop)
     )
 
     return True
