@@ -15,3 +15,7 @@ ignore = [
     "RUF002", # ambiguous unicode characters in docstrings (e.g. degree signs)
     "RUF006", # background tasks are intentionally fire-and-forget
 ]
+
+[lint.per-file-ignores]
+# Tests are made of asserts; the security rule is meant for integration code.
+"tests/**" = ["S101"]
