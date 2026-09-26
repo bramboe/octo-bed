@@ -11,7 +11,8 @@ Control your Octo adjustable bed (Octo Actuators control box, e.g. with the Star
 - **Two beds as one**: Pair two beds into a "Both beds" device with shared controls and position sync
 - **Calibration**: Measure the real full-travel time per motor for accurate positioning
 - **4-digit PIN**: Authentication with automatic keep-alive (the bed drops the connection after ~30 s without it)
-- **Automatic reconnect**: Reconnects in the background when the connection drops
+- **Automatic reconnect**: Reconnects in the background when the connection drops, right away when the bed advertises again; an out-of-range bed never blocks Home Assistant
+- **Two beds on one proxy**: Beds connect one at a time, so a single ESPHome proxy can serve both
 - **Multi-language**: English, Dutch, German and French (config flow, entity names and sensor states follow your Home Assistant language)
 
 ## Requirements
@@ -57,7 +58,7 @@ After setup, you'll get:
 - **Switches**: Head/Feet/Both Up & Down (hold-style movement), Synchro mode (linked drive mode, only on beds that report it; disabled by default)
 - **Light**: Under-bed light (with RGBW color picker when the bed supports it)
 - **Buttons**: Stop, calibration buttons, preset recall/save buttons (hardware slots when the bed reports them, otherwise 3 software slots), sync-to-other-bed buttons (with two beds)
-- **Diagnostic sensors**: Head/feet position, connection status, calibration status, MAC address
+- **Diagnostic sensors**: Head/feet position, connection status, calibration status, MAC address. The connection status sensor shows via which proxy the bed is connected, when it last connected or disconnected and the last connection error
 
 > **Note on hardware presets**: after recalling a hardware preset the bed moves on its own; the integration cannot track that movement, so the shown position may drift until the next full up/down move or calibration. Software presets (used on beds without hardware memory, like most RC2 boxes) do not have this problem: the integration drives the movement itself.
 
@@ -104,6 +105,19 @@ The calibration status sensor shows the current phase (moving to start / measuri
 
 When you pair two beds, the flow asks whether you want to calibrate both beds together. If enabled, the combined "Both beds" device gets the calibration buttons: one session moves **both beds simultaneously** (down to 0%, then up while measuring) and stores the same travel times for both, keeping them in sync. The per-bed calibration buttons are disabled while paired. You can toggle this later via the options of the combined device.
 
+## Changes in 2.9.0
+
+Stability release, no action needed after updating.
+
+- One connection manager per bed replaces the separate startup-connect, reconnect loop and on-demand connects that could race or deadlock. It only connects while the bed is advertising, so an unreachable bed no longer occupies proxy connection slots.
+- Beds set up their connections one after the other, avoiding "GATT error 133" when two beds share one ESPHome proxy.
+- A connection whose bed stops answering the PIN keep-alive is detected and rebuilt instead of staying "connected".
+- The "Both beds" device follows a reloaded bed instead of staying disconnected until a restart.
+- Capabilities (hardware presets, RGBW light, synchro) are remembered, so the right entities exist even before the bed connects; they are detected after every first connection, not only at startup.
+- "Sync to …" buttons appear on both beds, also when one bed was out of range at startup.
+- Movements stop tracking when the bed stops responding, so the shown position no longer runs ahead of the bed. Presets move head and feet together when they go the same way, and "Both" covers and switches track head and feet separately.
+- Pairing two beds no longer copies one bed's proxy choice and software presets to the combined device.
+
 ## Breaking changes in 2.0.0
 
 - The under-bed light is now a **light** entity instead of a switch. Update automations that used `switch.<bed>_light` to `light.<bed>_light`.
@@ -114,7 +128,7 @@ When you pair two beds, the flow asks whether you want to calibrate both beds to
 - **Connection fails**: Ensure the bed is powered on and in range. With a Bluetooth proxy, try pressing a button on the remote to wake the bed.
 - **Wrong PIN**: Double-check your 4-digit PIN from the bed's manual or app.
 - **Use bed address, not proxy**: When using ESPHome Bluetooth proxy, always use the bed's BLE address, not the proxy's.
-- **Entities unavailable**: The integration reconnects automatically with backoff; check the Connection status sensor and Home Assistant logs.
+- **Entities unavailable**: The integration reconnects automatically, immediately once the bed advertises again. Check the attributes of the Connection status sensor (last error, via which proxy) or download the diagnostics of the bed. A bed that is connected to the OCTO Smart Control app on a phone does not advertise and cannot be reached until the app lets go of it.
 
 ## Protocol
 

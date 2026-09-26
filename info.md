@@ -8,7 +8,7 @@ Control your Octo adjustable bed from Home Assistant via Bluetooth (ESPHome prox
 - Under-bed light (RGBW on supported beds)
 - Hardware memory presets (on supported beds)
 - Pair two beds into one combined device
-- 4-digit PIN authentication with keep-alive and automatic reconnect
+- 4-digit PIN authentication with keep-alive and automatic reconnect (two beds on one proxy supported)
 
 ## Requirements
 
