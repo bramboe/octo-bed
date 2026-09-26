@@ -27,6 +27,15 @@ CONF_SOFT_PRESETS = "soft_presets"
 # (best RSSI / load balancing), which is the default behaviour.
 CONF_PROXY_SOURCE = "proxy_source"
 PROXY_SOURCE_AUTO = "auto"
+# Bed capabilities from the last feature discovery (stored in entry data so
+# capability-dependent entities are right before the bed has connected).
+CONF_FEATURES = "features"
+
+# hass.data key of the lock that makes beds set up their BLE connections one
+# at a time (simultaneous GATT discovery on one ESP32 proxy tends to fail).
+CONNECT_GATE_KEY = f"{DOMAIN}_connect_gate"
+# Dispatcher signal sent whenever any bed's position or connection changes.
+SIGNAL_BED_UPDATE = f"{DOMAIN}_bed_update"
 DEFAULT_FULL_TRAVEL_SECONDS = 30
 SOFT_PRESET_SLOTS = 3
 

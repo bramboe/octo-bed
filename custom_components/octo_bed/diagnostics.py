@@ -32,5 +32,6 @@ async def async_get_config_entry_diagnostics(
             "feet_position": client.get_feet_position(),
             "calibration": client.get_calibration_status(),
             "features": client.get_feature_summary(),
+            "connection": getattr(client, "connection_info", None),
         }
     return diagnostics

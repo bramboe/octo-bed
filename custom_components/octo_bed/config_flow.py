@@ -39,6 +39,7 @@ from .const import (
     CONF_PAIR_WITH_ENTRY_ID,
     CONF_PROXY_SOURCE,
     CONF_SHOW_CALIBRATION_BUTTONS,
+    CONF_SOFT_PRESETS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
     OCTO_BED_SERVICE_UUID,
@@ -308,6 +309,9 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_abort(reason="already_paired")
 
         group_options = dict(entry1.options or {})
+        # Soft presets and the proxy pin are per bed; never copy them to the group
+        group_options.pop(CONF_SOFT_PRESETS, None)
+        group_options.pop(CONF_PROXY_SOURCE, None)
         if not group_options:
             group_options = {
                 CONF_HEAD_FULL_TRAVEL_SECONDS: DEFAULT_FULL_TRAVEL_SECONDS,
