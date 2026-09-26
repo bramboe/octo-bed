@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .config_flow import _proxy_friendly_name
 from .const import CONF_IS_GROUP, CONF_MEMBER_ENTRY_IDS, DOMAIN
 from .octo_bed_client import OctoBedClient
 
@@ -91,8 +92,9 @@ class OctoBedCalibrationStatusSensor(SensorEntity):
     async def async_added_to_hass(self) -> None:
         """Register for calibration state updates."""
         await super().async_added_to_hass()
-        self._client.register_calibration_state_callback(self._on_calibration_state_changed)
-
+        self.async_on_remove(
+            self._client.register_calibration_state_callback(self._on_calibration_state_changed)
+        )
     @callback
     def _on_calibration_state_changed(self) -> None:
         """Update state when calibration state changes."""
@@ -187,8 +189,9 @@ class OctoBedHeadPositionSensor(OctoBedDiagnosticSensor):
     async def async_added_to_hass(self) -> None:
         """Register for position updates."""
         await super().async_added_to_hass()
-        self._client.register_position_callback(self._on_position_changed)
-
+        self.async_on_remove(
+            self._client.register_position_callback(self._on_position_changed)
+        )
     @callback
     def _on_position_changed(self, part: str, position: int) -> None:
         """Update state when position changes."""
@@ -220,8 +223,9 @@ class OctoBedFeetPositionSensor(OctoBedDiagnosticSensor):
     async def async_added_to_hass(self) -> None:
         """Register for position updates."""
         await super().async_added_to_hass()
-        self._client.register_position_callback(self._on_position_changed)
-
+        self.async_on_remove(
+            self._client.register_position_callback(self._on_position_changed)
+        )
     @callback
     def _on_position_changed(self, part: str, position: int) -> None:
         """Update state when position changes."""
@@ -235,12 +239,15 @@ class OctoBedFeetPositionSensor(OctoBedDiagnosticSensor):
 
 
 class OctoBedConnectionStatusSensor(OctoBedDiagnosticSensor):
-    """Sensor exposing connection status with Bluetooth proxy."""
+    """Connection status, with the connection history as attributes."""
 
     _attr_icon = "mdi:bluetooth-connect"
     _attr_should_poll = False
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options: ClassVar[list[str]] = ["connected", "disconnected"]
+    _unrecorded_attributes = frozenset(
+        {"via", "last_connected", "last_disconnected", "last_error", "connections"}
+    )
 
     def __init__(self, client: OctoBedClient, device_info: DeviceInfo, unique_id_prefix: str) -> None:
         """Initialize the connection status sensor."""
@@ -256,7 +263,9 @@ class OctoBedConnectionStatusSensor(OctoBedDiagnosticSensor):
     async def async_added_to_hass(self) -> None:
         """Register for connection state updates."""
         await super().async_added_to_hass()
-        self._client.register_connection_callback(self._on_connection_changed)
+        self.async_on_remove(
+            self._client.register_connection_callback(self._on_connection_changed)
+        )
 
     @callback
     def _on_connection_changed(self, connected: bool) -> None:
@@ -268,3 +277,25 @@ class OctoBedConnectionStatusSensor(OctoBedDiagnosticSensor):
         """Return connection status: connected or disconnected."""
         return "connected" if self._client.is_connected() else "disconnected"
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Connection details: via which proxy, when, and the last error."""
+        info = getattr(self._client, "connection_info", None)
+        if not isinstance(info, dict) or "members" in info:
+            return None
+        # Only values that change together with the connection state; the live
+        # manager state and attempt counters are in the diagnostics download.
+        attrs = {
+            key: info.get(key)
+            for key in (
+                "via",
+                "last_connected",
+                "last_disconnected",
+                "last_error",
+                "connections",
+            )
+        }
+        via = attrs.get("via")
+        if via:
+            attrs["via"] = _proxy_friendly_name(self.hass, via, None)
+        return attrs

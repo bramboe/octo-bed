@@ -65,9 +65,12 @@ class OctoBedLight(LightEntity, RestoreEntity):
         last = await self.async_get_last_state()
         if last is not None and last.state in ("on", "off"):
             self._attr_is_on = last.state == "on"
-        self._client.register_connection_callback(self._on_connection_changed)
-        self._client.register_calibration_state_callback(self._on_calibration_state_changed)
-
+        self.async_on_remove(
+            self._client.register_connection_callback(self._on_connection_changed)
+        )
+        self.async_on_remove(
+            self._client.register_calibration_state_callback(self._on_calibration_state_changed)
+        )
     @callback
     def _on_connection_changed(self, connected: bool) -> None:
         self.async_write_ha_state()

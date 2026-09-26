@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
@@ -21,7 +20,6 @@ from .const import (
     CONF_HEAD_FULL_TRAVEL_SECONDS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
-    MOVEMENT_COMMAND_INTERVAL,
 )
 from .octo_bed_client import OctoBedClient
 
@@ -98,8 +96,9 @@ class OctoBedSynchroSwitch(SwitchEntity):
     async def async_added_to_hass(self) -> None:
         """Register for connection updates."""
         await super().async_added_to_hass()
-        self._client.register_connection_callback(self._on_connection_changed)
-
+        self.async_on_remove(
+            self._client.register_connection_callback(self._on_connection_changed)
+        )
     @callback
     def _on_connection_changed(self, connected: bool) -> None:
         self.async_write_ha_state()
@@ -122,7 +121,7 @@ class OctoBedSynchroSwitch(SwitchEntity):
 
 
 class OctoBedMovementSwitch(SwitchEntity):
-    """Representation of an Octo Bed movement switch."""
+    """Hold-to-run movement: on drives the part(s) towards the end stop."""
 
     _attr_has_entity_name = True
     _attr_assumed_state = True
@@ -143,36 +142,39 @@ class OctoBedMovementSwitch(SwitchEntity):
         self._attr_icon = icon
         self._attr_unique_id = f"{unique_id_prefix}_move_{action}"
         self._attr_device_info = device_info
-        self._is_on: bool = False
         self._entry = entry
-        self._task: asyncio.Task[None] | None = None
+        self._task: asyncio.Task[Any] | None = None
+        self._up = action.endswith("_up")
+        self._part = action.split("_", 1)[0]  # "head", "feet" or "both"
+        self._parts = ("head", "feet") if self._part == "both" else (self._part,)
 
-    def _travel_seconds(self) -> int:
-        """Full travel seconds for this action, read live so calibration updates apply."""
+    def _travel_seconds(self) -> tuple[float, float]:
+        """(head, feet) full travel seconds, read live so calibration applies."""
         opts = self._entry.options
         default = opts.get(CONF_FULL_TRAVEL_SECONDS, DEFAULT_FULL_TRAVEL_SECONDS)
-        head = opts.get(CONF_HEAD_FULL_TRAVEL_SECONDS, default)
-        feet = opts.get(CONF_FEET_FULL_TRAVEL_SECONDS, default)
-        if "both" in self._action:
-            return max(head, feet)
-        if "head" in self._action:
-            return head
-        return feet
+        return (
+            float(opts.get(CONF_HEAD_FULL_TRAVEL_SECONDS, default)),
+            float(opts.get(CONF_FEET_FULL_TRAVEL_SECONDS, default)),
+        )
 
     async def async_added_to_hass(self) -> None:
         """Register for calibration and connection updates."""
         await super().async_added_to_hass()
-        self._client.register_calibration_state_callback(self._on_calibration_state_changed)
-        self._client.register_connection_callback(self._on_connection_changed)
+        self.async_on_remove(
+            self._client.register_calibration_state_callback(self._on_state_changed)
+        )
+        self.async_on_remove(
+            self._client.register_connection_callback(self._on_state_changed)
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Stop driving the motors when the entity goes away."""
+        if await self._cancel_task():
+            await self._client.send_stop()
 
     @callback
-    def _on_calibration_state_changed(self) -> None:
-        """Update availability when calibration state changes."""
-        self.async_write_ha_state()
-
-    @callback
-    def _on_connection_changed(self, connected: bool) -> None:
-        """Update availability when the connection state changes."""
+    def _on_state_changed(self, *_args: Any) -> None:
+        """Update availability when calibration or connection state changes."""
         self.async_write_ha_state()
 
     @property
@@ -182,92 +184,47 @@ class OctoBedMovementSwitch(SwitchEntity):
 
     @property
     def is_on(self) -> bool:
-        """Return true if the movement is active."""
-        return self._is_on
+        """Return true while the movement is running."""
+        return self._task is not None and not self._task.done()
+
+    async def _cancel_task(self) -> bool:
+        task = self._task
+        self._task = None
+        if task is None or task.done():
+            return False
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        return True
+
+    @callback
+    def _on_task_done(self, task: asyncio.Task[Any]) -> None:
+        if self._task is task:
+            self._task = None
+        if not task.cancelled() and task.exception() is not None:
+            _LOGGER.error("Movement %s failed: %s", self._action, task.exception())
+        if self.hass is not None:
+            self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Start movement in the configured direction."""
-        if self._task and not self._task.done():
+        if self.is_on:
             return
-
-        self._is_on = True
+        head_travel, feet_travel = self._travel_seconds()
+        task = asyncio.create_task(
+            self._client.run_hold(self._up, self._parts, head_travel, feet_travel)
+        )
+        self._task = task
+        self._client.register_movement_task(task)
+        # Register which part is moving so conflicting moves get cancelled
+        self._client.register_active_movement(self._part, task)
+        task.add_done_callback(self._on_task_done)
         self.async_write_ha_state()
-
-        self._task = asyncio.create_task(self._movement_loop())
-        self._client.register_movement_task(self._task)
-
-        # Register which part is moving to prevent conflicts
-        if "both" in self._action:
-            self._client.register_active_movement("both", self._task)
-        elif "head" in self._action:
-            self._client.register_active_movement("head", self._task)
-        elif "feet" in self._action:
-            self._client.register_active_movement("feet", self._task)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Stop movement."""
-        if self._task and not self._task.done():
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-
+        await self._cancel_task()
         await self._client.stop()
-        self._is_on = False
-        self._task = None
         self.async_write_ha_state()
-
-    async def _movement_loop(self) -> None:
-        """Continuously send movement commands until switched off or full travel reached."""
-        method = getattr(self._client, self._action, None)
-        if not method or not callable(method):
-            _LOGGER.error("Unknown movement action %s", self._action)
-            return
-
-        going_up = "up" in self._action
-        if "both" in self._action:
-            start_position = self._client.get_both_position()
-            position_setter = self._client.set_both_position
-        elif "head" in self._action:
-            start_position = self._client.get_head_position()
-            position_setter = self._client.set_head_position
-        else:  # feet
-            start_position = self._client.get_feet_position()
-            position_setter = self._client.set_feet_position
-
-        target_position = 100 if going_up else 0
-        position_delta = target_position - start_position
-        full_travel = self._travel_seconds()
-        end_time = time.monotonic() + full_travel
-        start_time = time.monotonic()
-        cancelled = False
-        try:
-            while time.monotonic() < end_time:
-                if self._task and self._task.cancelled():
-                    cancelled = True
-                    break
-                await method()
-
-                elapsed = time.monotonic() - start_time
-                progress = min(1.0, elapsed / full_travel)
-                position_setter(round(start_position + position_delta * progress))
-
-                await asyncio.sleep(MOVEMENT_COMMAND_INTERVAL)
-        except asyncio.CancelledError:
-            cancelled = True
-        finally:
-            elapsed = time.monotonic() - start_time
-            progress = min(1.0, elapsed / full_travel)
-            position_setter(round(start_position + position_delta * progress))
-
-            # If we reached full-travel time (not cancelled), send stop command.
-            if not cancelled:
-                try:
-                    await self._client.send_stop()
-                except Exception:
-                    _LOGGER.debug("Failed to send stop after switch move", exc_info=True)
-
-            self._is_on = False
-            self._task = None
-            self.async_write_ha_state()

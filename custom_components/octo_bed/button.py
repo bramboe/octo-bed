@@ -6,9 +6,10 @@ import asyncio
 import logging
 
 from homeassistant.components.button import ButtonEntity
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import SOURCE_IGNORE, ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -22,6 +23,7 @@ from .const import (
     CONF_SOFT_PRESETS,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
+    SIGNAL_BED_UPDATE,
     SOFT_PRESET_SLOTS,
 )
 from .octo_bed_client import OctoBedClient
@@ -105,38 +107,35 @@ async def async_setup_entry(
             OctoBedCompleteCalibrationButton(client, entry, device_info, uid, calibration_disabled_paired),
         ])
 
-    # Sync position buttons: only when there is at least one other bed
+    # Sync position buttons. Created for every other configured bed, whether
+    # or not it has finished loading: the other bed's client is looked up when
+    # it is needed, so the buttons survive either bed being reloaded.
     if entry.data.get(CONF_IS_GROUP):
-        member_ids = entry.data.get(CONF_MEMBER_ENTRY_IDS) or []
-        for member_id in member_ids:
+        for member_id in entry.data.get(CONF_MEMBER_ENTRY_IDS) or []:
             member_entry = hass.config_entries.async_get_entry(member_id)
-            if not member_entry:
+            if member_entry is None:
                 continue
-            other_client = hass.data.get(DOMAIN, {}).get(member_id)
-            if other_client is None:
-                continue
-            title = member_entry.title or "Octo Bed"
             buttons.append(
                 OctoBedSyncToBedButton(
                     client, entry, device_info, uid,
                     source_entry_id=member_id,
-                    source_title=title,
+                    source_title=member_entry.title or "Octo Bed",
                 )
             )
     else:
-        other_beds = [
-            e for e in hass.config_entries.async_entries(DOMAIN)
-            if not e.data.get(CONF_IS_GROUP) and e.entry_id != entry.entry_id
-        ]
-        for other in other_beds:
-            if hass.data.get(DOMAIN, {}).get(other.entry_id) is None:
+        for other in hass.config_entries.async_entries(DOMAIN):
+            if (
+                other.entry_id == entry.entry_id
+                or other.data.get(CONF_IS_GROUP)
+                or other.source == SOURCE_IGNORE
+                or not other.data.get("address")
+            ):
                 continue
-            title = other.title or "Octo Bed"
             buttons.append(
                 OctoBedSyncToOtherButton(
                     client, entry, device_info, uid,
                     other_entry_id=other.entry_id,
-                    other_title=title,
+                    other_title=other.title or "Octo Bed",
                 )
             )
 
@@ -167,9 +166,12 @@ class OctoBedButton(ButtonEntity):
     async def async_added_to_hass(self) -> None:
         """Register for calibration and connection updates."""
         await super().async_added_to_hass()
-        self._client.register_calibration_state_callback(self._on_calibration_state_changed)
-        self._client.register_connection_callback(self._on_connection_changed)
-
+        self.async_on_remove(
+            self._client.register_calibration_state_callback(self._on_calibration_state_changed)
+        )
+        self.async_on_remove(
+            self._client.register_connection_callback(self._on_connection_changed)
+        )
     @callback
     def _on_calibration_state_changed(self) -> None:
         """Update availability when calibration state changes."""
@@ -220,8 +222,9 @@ class OctoBedPresetButton(ButtonEntity):
     async def async_added_to_hass(self) -> None:
         """Register for connection updates."""
         await super().async_added_to_hass()
-        self._client.register_connection_callback(self._on_connection_changed)
-
+        self.async_on_remove(
+            self._client.register_connection_callback(self._on_connection_changed)
+        )
     @callback
     def _on_connection_changed(self, connected: bool) -> None:
         self.async_write_ha_state()
@@ -261,9 +264,12 @@ class OctoBedSoftPresetButton(ButtonEntity):
     async def async_added_to_hass(self) -> None:
         """Register for connection and calibration updates."""
         await super().async_added_to_hass()
-        self._client.register_connection_callback(self._on_client_state_changed)
-        self._client.register_calibration_state_callback(self._on_calibration_changed)
-
+        self.async_on_remove(
+            self._client.register_connection_callback(self._on_client_state_changed)
+        )
+        self.async_on_remove(
+            self._client.register_calibration_state_callback(self._on_calibration_changed)
+        )
     @callback
     def _on_client_state_changed(self, connected: bool) -> None:
         self.async_write_ha_state()
@@ -340,8 +346,9 @@ class OctoBedSaveSoftPresetButton(ButtonEntity):
     async def async_added_to_hass(self) -> None:
         """Register for connection updates."""
         await super().async_added_to_hass()
-        self._client.register_connection_callback(self._on_connection_changed)
-
+        self.async_on_remove(
+            self._client.register_connection_callback(self._on_connection_changed)
+        )
     @callback
     def _on_connection_changed(self, connected: bool) -> None:
         self.async_write_ha_state()
@@ -393,8 +400,9 @@ class OctoBedSavePresetButton(ButtonEntity):
     async def async_added_to_hass(self) -> None:
         """Register for connection updates."""
         await super().async_added_to_hass()
-        self._client.register_connection_callback(self._on_connection_changed)
-
+        self.async_on_remove(
+            self._client.register_connection_callback(self._on_connection_changed)
+        )
     @callback
     def _on_connection_changed(self, connected: bool) -> None:
         self.async_write_ha_state()
@@ -438,8 +446,9 @@ class OctoBedCalibrateButton(ButtonEntity):
     async def async_added_to_hass(self) -> None:
         """Register for calibration state updates."""
         await super().async_added_to_hass()
-        self._client.register_calibration_state_callback(self._on_calibration_state_changed)
-
+        self.async_on_remove(
+            self._client.register_calibration_state_callback(self._on_calibration_state_changed)
+        )
     @callback
     def _on_calibration_state_changed(self) -> None:
         """Update availability when calibration state changes."""
@@ -491,8 +500,9 @@ class OctoBedCompleteCalibrationButton(ButtonEntity):
     async def async_added_to_hass(self) -> None:
         """Register for calibration state updates."""
         await super().async_added_to_hass()
-        self._client.register_calibration_state_callback(self._on_calibration_state_changed)
-
+        self.async_on_remove(
+            self._client.register_calibration_state_callback(self._on_calibration_state_changed)
+        )
     @callback
     def _on_calibration_state_changed(self) -> None:
         """Update availability when calibration state changes."""
@@ -545,12 +555,61 @@ class OctoBedCompleteCalibrationButton(ButtonEntity):
         await self._client.move_part_down_for_seconds(part, duration_seconds)
 
 
-class OctoBedSyncToOtherButton(ButtonEntity):
-    """Button on an individual bed: copy the other bed's position to this bed."""
+class _OctoBedSyncButtonBase(ButtonEntity):
+    """Shared plumbing for the sync-position buttons.
+
+    Other beds are looked up by config entry id whenever they are needed and
+    their changes arrive through a dispatcher signal, so the button keeps
+    working when either bed is reloaded or finishes loading later.
+    """
 
     _attr_entity_category = EntityCategory.CONFIG
     _attr_has_entity_name = True
     _attr_icon = "mdi:sync"
+
+    def __init__(
+        self,
+        client: OctoBedClient,
+        entry: ConfigEntry,
+        device_info: DeviceInfo,
+        unique_id: str,
+        bed_title: str,
+    ) -> None:
+        self._client = client
+        self._entry = entry
+        self._attr_device_info = device_info
+        self._attr_unique_id = unique_id
+        self._attr_translation_key = "sync_to"
+        self._attr_translation_placeholders = {"bed": bed_title}
+
+    async def async_added_to_hass(self) -> None:
+        """Follow calibration of this device and changes of any bed."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._client.register_calibration_state_callback(self._on_update)
+        )
+        self.async_on_remove(
+            self._client.register_position_callback(self._on_position)
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_BED_UPDATE, self._on_update)
+        )
+
+    @callback
+    def _on_position(self, _part: str, _position: int) -> None:
+        self.async_write_ha_state()
+
+    @callback
+    def _on_update(self, *_args: object) -> None:
+        self.async_write_ha_state()
+
+    def _bed_client(self, entry_id: str) -> OctoBedClient | None:
+        client = (self.hass.data.get(DOMAIN) or {}).get(entry_id)
+        return client if isinstance(client, OctoBedClient) else None
+
+
+class OctoBedSyncToOtherButton(_OctoBedSyncButtonBase):
+    """Button on an individual bed: copy the other bed's position to this bed."""
 
     def __init__(
         self,
@@ -562,136 +621,76 @@ class OctoBedSyncToOtherButton(ButtonEntity):
         other_title: str,
     ) -> None:
         """Initialize the sync button."""
-        self._client = client
-        self._entry = entry
-        self._attr_device_info = device_info
-        self._attr_unique_id = f"{unique_id_prefix}_sync_to_{other_entry_id}"
-        self._attr_translation_key = "sync_to"
-        self._attr_translation_placeholders = {"bed": other_title}
+        super().__init__(
+            client,
+            entry,
+            device_info,
+            f"{unique_id_prefix}_sync_to_{other_entry_id}",
+            other_title,
+        )
         self._other_entry_id = other_entry_id
         self._other_title = other_title
-        self._other_position_callback_registered = False
-
-    async def async_added_to_hass(self) -> None:
-        """Register for position updates on both beds so availability stays in sync."""
-        await super().async_added_to_hass()
-        self._client.register_calibration_state_callback(self._on_calibration_state_changed)
-        domain_data = self.hass.data.get(DOMAIN) or {}
-        other_client = domain_data.get(self._other_entry_id)
-        if other_client is not None:
-            other_client.register_position_callback(self._on_source_position_changed)
-            self._other_position_callback_registered = True
-        self._client.register_position_callback(self._on_source_position_changed)
-        # Other bed's client may not be in hass.data yet (setup order); retry so we get updates when it moves
-        if not self._other_position_callback_registered:
-            for delay in (1, 3, 10):
-                self.hass.async_call_later(delay, self._try_register_other_client)
-
-    @callback
-    def _try_register_other_client(self, _dt=None) -> None:
-        """Register for the other bed's position updates when its client becomes available."""
-        if self._other_position_callback_registered:
-            return
-        domain_data = self.hass.data.get(DOMAIN) or {}
-        other_client = domain_data.get(self._other_entry_id)
-        if other_client is not None:
-            other_client.register_position_callback(self._on_source_position_changed)
-            self._other_position_callback_registered = True
-            self.async_write_ha_state()
-
-    @callback
-    def _on_source_position_changed(self, part: str, position: int) -> None:
-        """Update availability when either bed's position changes."""
-        self.async_write_ha_state()
-
-    @callback
-    def _on_calibration_state_changed(self) -> None:
-        """Update availability when calibration state changes."""
-        self.async_write_ha_state()
-
-    def _source_at_zero(self) -> bool:
-        """True if the other bed has both head and feet at 0%."""
-        domain_data = self.hass.data.get(DOMAIN) or {}
-        other_client = domain_data.get(self._other_entry_id)
-        if other_client is None:
-            return True
-        return (
-            other_client.get_head_position() == 0
-            and other_client.get_feet_position() == 0
-        )
-
-    def _positions_already_match(self) -> bool:
-        """True if this bed and the other bed have the same head and feet position."""
-        domain_data = self.hass.data.get(DOMAIN) or {}
-        other_client = domain_data.get(self._other_entry_id)
-        if other_client is None:
-            return True
-        return (
-            self._client.get_head_position() == other_client.get_head_position()
-            and self._client.get_feet_position() == other_client.get_feet_position()
-        )
 
     def _calibration_differs_from_other(self) -> str | None:
-        """When only 2 individual beds (no group): return message if calibration differs, else None."""
-        all_entries = list(self.hass.config_entries.async_entries(DOMAIN))
-        non_group = [e for e in all_entries if not (e.data or {}).get(CONF_IS_GROUP)]
-        has_group = any((e.data or {}).get(CONF_IS_GROUP) for e in all_entries)
-        if len(non_group) != 2 or has_group:
+        """With exactly two separate beds: a reason when their calibration differs."""
+        entries = list(self.hass.config_entries.async_entries(DOMAIN))
+        beds = [e for e in entries if not (e.data or {}).get(CONF_IS_GROUP)]
+        if len(beds) != 2 or any((e.data or {}).get(CONF_IS_GROUP) for e in entries):
             return None
         other_entry = self.hass.config_entries.async_get_entry(self._other_entry_id)
-        if not other_entry:
+        if other_entry is None:
             return None
-        opts_self = self._entry.options or {}
-        opts_other = other_entry.options or {}
-        default = DEFAULT_FULL_TRAVEL_SECONDS
-        head_self = opts_self.get(CONF_HEAD_FULL_TRAVEL_SECONDS, opts_self.get(CONF_FULL_TRAVEL_SECONDS, default))
-        feet_self = opts_self.get(CONF_FEET_FULL_TRAVEL_SECONDS, opts_self.get(CONF_FULL_TRAVEL_SECONDS, default))
-        head_other = opts_other.get(CONF_HEAD_FULL_TRAVEL_SECONDS, opts_other.get(CONF_FULL_TRAVEL_SECONDS, default))
-        feet_other = opts_other.get(CONF_FEET_FULL_TRAVEL_SECONDS, opts_other.get(CONF_FULL_TRAVEL_SECONDS, default))
-        if head_self != head_other or feet_self != feet_other:
+        if _travel_times(self._entry) != _travel_times(other_entry):
             return "Calibration differs from other bed"
+        return None
+
+    def _unavailable_reason(self) -> str | None:
+        other = self._bed_client(self._other_entry_id)
+        if other is None:
+            return "Other bed is not loaded"
+        if not (self._client.is_connected() and other.is_connected()):
+            return "A bed is not connected"
+        if self._client.is_calibration_active():
+            return "Calibration in progress"
+        if other.get_head_position() == 0 and other.get_feet_position() == 0:
+            return "Other bed is flat"
+        reason = self._calibration_differs_from_other()
+        if reason:
+            return reason
+        if (
+            self._client.get_head_position() == other.get_head_position()
+            and self._client.get_feet_position() == other.get_feet_position()
+        ):
+            return "Beds are already at the same position"
         return None
 
     @property
     def available(self) -> bool:
-        """Unavailable during calibration, when the other bed is at 0%, when calibration differs (2 beds only), or when positions already match."""
-        if self._client.is_calibration_active():
-            return False
-        if self._source_at_zero():
-            return False
-        if self._calibration_differs_from_other():
-            return False
-        return not self._positions_already_match()
+        return self._unavailable_reason() is None
 
     @property
-    def extra_state_attributes(self) -> dict[str, str | None]:
-        """Expose unavailable reason when calibration differs or positions already match."""
-        reason = self._calibration_differs_from_other()
-        if reason:
-            return {"unavailable_reason": reason}
-        if self._positions_already_match():
-            return {"unavailable_reason": "Beds are already at the same position"}
-        return {}
+    def extra_state_attributes(self) -> dict[str, str]:
+        reason = self._unavailable_reason()
+        return {"unavailable_reason": reason} if reason else {}
 
     async def async_press(self) -> None:
         """Copy the other bed's head/feet position to this bed."""
-        domain_data = self.hass.data.get(DOMAIN) or {}
-        other_client = domain_data.get(self._other_entry_id)
-        if not other_client:
+        other = self._bed_client(self._other_entry_id)
+        if other is None:
             _LOGGER.warning("Other bed %s not available for sync", self._other_title)
             return
-        head = other_client.get_head_position()
-        feet = other_client.get_feet_position()
         head_travel, feet_travel = _travel_times(self._entry)
-        await _run_to_position_tracked(self._client, head, feet, head_travel, feet_travel)
+        await _run_to_position_tracked(
+            self._client,
+            other.get_head_position(),
+            other.get_feet_position(),
+            head_travel,
+            feet_travel,
+        )
 
 
-class OctoBedSyncToBedButton(ButtonEntity):
+class OctoBedSyncToBedButton(_OctoBedSyncButtonBase):
     """Button on 'Both beds' device: set both beds to the chosen bed's position."""
-
-    _attr_entity_category = EntityCategory.CONFIG
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:sync"
 
     def __init__(
         self,
@@ -703,87 +702,60 @@ class OctoBedSyncToBedButton(ButtonEntity):
         source_title: str,
     ) -> None:
         """Initialize the sync button."""
-        self._client = client
-        self._entry = entry
-        self._attr_device_info = device_info
-        self._attr_unique_id = f"{unique_id_prefix}_sync_to_{source_entry_id}"
-        self._attr_translation_key = "sync_to"
-        self._attr_translation_placeholders = {"bed": source_title}
+        super().__init__(
+            client,
+            entry,
+            device_info,
+            f"{unique_id_prefix}_sync_to_{source_entry_id}",
+            source_title,
+        )
         self._source_entry_id = source_entry_id
         self._source_title = source_title
 
-    async def async_added_to_hass(self) -> None:
-        """Register for position updates on both member beds so availability stays in sync."""
-        await super().async_added_to_hass()
-        self._client.register_calibration_state_callback(self._on_calibration_state_changed)
-        domain_data = self.hass.data.get(DOMAIN) or {}
-        member_ids = self._entry.data.get(CONF_MEMBER_ENTRY_IDS) or []
-        for eid in member_ids:
-            client = domain_data.get(eid)
-            if client is not None:
-                client.register_position_callback(self._on_source_position_changed)
-
-    @callback
-    def _on_source_position_changed(self, part: str, position: int) -> None:
-        """Update availability when either bed's position changes."""
-        self.async_write_ha_state()
-
-    @callback
-    def _on_calibration_state_changed(self) -> None:
-        """Update availability when calibration state changes."""
-        self.async_write_ha_state()
-
-    def _source_at_zero(self) -> bool:
-        """True if the source bed has both head and feet at 0%."""
-        domain_data = self.hass.data.get(DOMAIN) or {}
-        source_client = domain_data.get(self._source_entry_id)
-        if source_client is None:
-            return True
-        return (
-            source_client.get_head_position() == 0
-            and source_client.get_feet_position() == 0
-        )
-
-    def _both_beds_already_at_source_position(self) -> bool:
-        """True if both beds are already at the source bed's position (no sync needed)."""
-        domain_data = self.hass.data.get(DOMAIN) or {}
-        source_client = domain_data.get(self._source_entry_id)
-        if source_client is None:
-            return True
-        member_ids = self._entry.data.get(CONF_MEMBER_ENTRY_IDS) or []
-        sh, sf = source_client.get_head_position(), source_client.get_feet_position()
-        for eid in member_ids:
-            client = domain_data.get(eid)
-            if client is None:
-                return False
-            if client.get_head_position() != sh or client.get_feet_position() != sf:
-                return False
-        return True
+    def _unavailable_reason(self) -> str | None:
+        source = self._bed_client(self._source_entry_id)
+        if source is None:
+            return "Source bed is not loaded"
+        if not self._client.is_connected():
+            return "A bed is not connected"
+        if self._client.is_calibration_active():
+            return "Calibration in progress"
+        head, feet = source.get_head_position(), source.get_feet_position()
+        if head == 0 and feet == 0:
+            return "Source bed is flat"
+        members = [
+            self._bed_client(eid)
+            for eid in self._entry.data.get(CONF_MEMBER_ENTRY_IDS) or []
+        ]
+        if all(
+            m is not None
+            and m.get_head_position() == head
+            and m.get_feet_position() == feet
+            for m in members
+        ):
+            return "Beds are already at the same position"
+        return None
 
     @property
     def available(self) -> bool:
-        """Unavailable during calibration, when the source bed is at 0%, or when both beds already match source position."""
-        if self._client.is_calibration_active():
-            return False
-        if self._source_at_zero():
-            return False
-        return not self._both_beds_already_at_source_position()
+        return self._unavailable_reason() is None
 
     @property
-    def extra_state_attributes(self) -> dict[str, str | None]:
-        """Expose unavailable reason when both beds already at source position."""
-        if self._both_beds_already_at_source_position() and not self._source_at_zero():
-            return {"unavailable_reason": "Beds are already at the same position"}
-        return {}
+    def extra_state_attributes(self) -> dict[str, str]:
+        reason = self._unavailable_reason()
+        return {"unavailable_reason": reason} if reason else {}
 
     async def async_press(self) -> None:
         """Set both beds to the source bed's head/feet position."""
-        domain_data = self.hass.data.get(DOMAIN) or {}
-        source_client = domain_data.get(self._source_entry_id)
-        if not source_client:
+        source = self._bed_client(self._source_entry_id)
+        if source is None:
             _LOGGER.warning("Source bed %s not available for sync", self._source_title)
             return
-        head = source_client.get_head_position()
-        feet = source_client.get_feet_position()
         head_travel, feet_travel = _travel_times(self._entry)
-        await _run_to_position_tracked(self._client, head, feet, head_travel, feet_travel)
+        await _run_to_position_tracked(
+            self._client,
+            source.get_head_position(),
+            source.get_feet_position(),
+            head_travel,
+            feet_travel,
+        )
