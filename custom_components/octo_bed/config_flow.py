@@ -86,6 +86,20 @@ def _is_octo_bed(info: BluetoothServiceInfoBleak) -> bool:
     return bool(info.service_uuids and OCTO_BED_SERVICE_UUID in info.service_uuids)
 
 
+def _registry_devices(dev_reg: dr.DeviceRegistry) -> list[dr.DeviceEntry]:
+    """Every device entry, on old and new Home Assistant versions alike.
+
+    Iterating ``DeviceRegistry.devices`` is the supported way to enumerate it:
+    newer versions yield the device entries and report any mapping-style use
+    (``.values()``, ``[id]``) as deprecated, while older versions are a mapping
+    whose iteration yields device ids.
+    """
+    items = list(dev_reg.devices)
+    if items and isinstance(items[0], str):
+        return list(dev_reg.devices.values())
+    return items
+
+
 def _proxy_friendly_name(
     hass: HomeAssistant, source: str, scanner_name: str | None
 ) -> str:
@@ -105,7 +119,7 @@ def _proxy_friendly_name(
         (dr.CONNECTION_BLUETOOTH, source),
         (dr.CONNECTION_BLUETOOTH, source.upper()),
     )
-    devices = list(dev_reg.devices.values())
+    devices = _registry_devices(dev_reg)
     device = next(
         (
             d

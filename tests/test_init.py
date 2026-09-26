@@ -275,3 +275,21 @@ async def test_proxy_name_comes_from_the_device_registry(hass: HomeAssistant) ->
     registry.async_update_device(device.id, name_by_user="Slaapkamer proxy")
     assert _proxy_friendly_name(hass, "24:6F:28:5F:03:7E", None) == "Slaapkamer proxy"
     assert _proxy_friendly_name(hass, "AA:BB:CC:DD:EE:FF", "node") == "node"
+
+
+def test_registry_devices_supports_the_new_view() -> None:
+    """HA 2026.9+ yields entries when iterating and deprecates mapping use."""
+    from types import SimpleNamespace
+
+    from custom_components.octo_bed.config_flow import _registry_devices
+
+    entry = SimpleNamespace(id="abc", connections=set(), name="x")
+
+    class NewStyleView:
+        def __iter__(self):
+            return iter([entry])
+
+        def __getattr__(self, name: str):
+            raise AssertionError(f"deprecated mapping use: {name}")
+
+    assert _registry_devices(SimpleNamespace(devices=NewStyleView())) == [entry]
