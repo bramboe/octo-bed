@@ -97,17 +97,26 @@ def _proxy_friendly_name(
     network MAC, so fall back to matching the registry device by scanner name.
     """
     dev_reg = dr.async_get(hass)
-    device = dev_reg.async_get_device(
-        connections={
-            (dr.CONNECTION_NETWORK_MAC, dr.format_mac(source)),
-            (dr.CONNECTION_BLUETOOTH, source),
-        }
+    # Match on connections by walking the registry: DeviceRegistry.async_get_device
+    # is deprecated (connections are no longer unique across config entries)
+    # and its replacements do not exist on every supported Home Assistant.
+    wanted = (
+        (dr.CONNECTION_NETWORK_MAC, dr.format_mac(source)),
+        (dr.CONNECTION_BLUETOOTH, source),
+        (dr.CONNECTION_BLUETOOTH, source.upper()),
+    )
+    devices = list(dev_reg.devices.values())
+    device = next(
+        (
+            d
+            for connection in wanted
+            for d in devices
+            if connection in d.connections
+        ),
+        None,
     )
     if device is None and scanner_name:
-        device = next(
-            (d for d in dev_reg.devices.values() if d.name == scanner_name),
-            None,
-        )
+        device = next((d for d in devices if d.name == scanner_name), None)
     if device:
         return device.name_by_user or device.name or scanner_name or source
     return scanner_name or source

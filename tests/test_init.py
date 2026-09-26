@@ -255,3 +255,23 @@ async def test_sync_buttons_exist_on_both_beds(
     assert registry.async_get_entity_id(
         "button", DOMAIN, f"{ianthe.unique_id}_sync_to_{bram.entry_id}"
     )
+
+
+async def test_proxy_name_comes_from_the_device_registry(hass: HomeAssistant) -> None:
+    """The connection sensor shows the proxy's (renamed) device name."""
+    from homeassistant.helpers import device_registry as dr
+
+    from custom_components.octo_bed.config_flow import _proxy_friendly_name
+
+    owner = MockConfigEntry(domain="esphome")
+    owner.add_to_hass(hass)
+    registry = dr.async_get(hass)
+    device = registry.async_get_or_create(
+        config_entry_id=owner.entry_id,
+        connections={(dr.CONNECTION_BLUETOOTH, "24:6F:28:5F:03:7E")},
+        name="Bluetooth Proxy Bedroom",
+    )
+    assert _proxy_friendly_name(hass, "24:6F:28:5F:03:7E", None) == "Bluetooth Proxy Bedroom"
+    registry.async_update_device(device.id, name_by_user="Slaapkamer proxy")
+    assert _proxy_friendly_name(hass, "24:6F:28:5F:03:7E", None) == "Slaapkamer proxy"
+    assert _proxy_friendly_name(hass, "AA:BB:CC:DD:EE:FF", "node") == "node"
