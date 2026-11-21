@@ -25,9 +25,9 @@
       },
       "pin": {
         "title": "Enter PIN",
-        "description": "The 4-digit PIN is required to establish a connection with your Octo bed. You can find this in your bed's manual or app.",
+        "description": "The 4-digit PIN of your Octo bed (see the bed's manual or app). Leave it empty if your receiver has no PIN.",
         "data": {
-          "pin": "PIN (4 digits)",
+          "pin": "PIN (4 digits, optional)",
           "device_name": "Device name",
           "proxy_source": "Bluetooth proxy"
         },
@@ -69,7 +69,7 @@
     "error": {
       "invalid_address": "Invalid Bluetooth address. Use format AA:BB:CC:DD:EE:FF (12 hex characters).",
       "invalid_pin": "PIN must be exactly 4 digits.",
-      "pin_rejected": "The bed rejected this PIN. Check the PIN and try again.",
+      "pin_rejected": "The bed rejected this PIN or asks for one. Check the PIN and try again.",
       "device_unavailable": "Device not reachable. Ensure the bed is on and in range (or Bluetooth proxy is connected).",
       "select_two_different": "Select two different beds."
     },

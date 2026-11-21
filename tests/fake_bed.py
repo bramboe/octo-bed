@@ -14,7 +14,10 @@ from typing import Any
 from bleak import BleakError
 
 from custom_components.octo_bed import protocol
-from custom_components.octo_bed.const import NOTIFY_PIN_ACCEPTED
+from custom_components.octo_bed.const import (
+    NOTIFY_PIN_ACCEPTED,
+    NOTIFY_PIN_REQUIRED_ALT,
+)
 
 CAPS_QUERY = protocol.build_packet(protocol.CMD_SYSTEM_GET_CAPS)
 
@@ -53,6 +56,7 @@ class FakeBed:
         self.device = FakeBleDevice(address)
         self.capabilities: list[str] = list(RC2_CAPABILITIES)
         self.ack_pin = True
+        self.asks_for_pin = False  # bed sends "PIN required" right after subscribe
         self.connect_failures = 0  # next N establish_connection calls fail
         self.notify_failures = 0  # next N start_notify calls fail (GATT 133)
         self.connect_hang: asyncio.Event | None = None  # block connects until set
@@ -105,6 +109,8 @@ class FakeBleakClient:
                 f"Bluetooth GATT Error address={self.bed.address} handle=18 error=133"
             )
         self._notify = callback
+        if self.bed.asks_for_pin:
+            asyncio.get_running_loop().call_soon(self._send, NOTIFY_PIN_REQUIRED_ALT)
 
     async def write_gatt_char(self, _uuid: str, data: bytes, response: bool = False) -> None:
         await asyncio.sleep(0)

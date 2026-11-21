@@ -153,7 +153,7 @@ async def _async_setup_bed(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """
     _async_migrate_options(hass, entry)
     address: str = entry.data["address"].upper()
-    pin: str = entry.data["pin"]
+    pin: str = entry.data.get("pin") or ""
 
     @callback
     def _resolve() -> BLEDevice | None:

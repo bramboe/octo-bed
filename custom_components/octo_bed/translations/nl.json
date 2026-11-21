@@ -25,9 +25,9 @@
       },
       "pin": {
         "title": "Pincode invoeren",
-        "description": "De 4-cijferige pincode is nodig om verbinding te maken met je Octo-bed. Je vindt deze in de handleiding of app van het bed.",
+        "description": "De 4-cijferige pincode van je Octo-bed (zie de handleiding of app). Laat leeg als je ontvanger geen pincode heeft.",
         "data": {
-          "pin": "Pincode (4 cijfers)",
+          "pin": "Pincode (4 cijfers, optioneel)",
           "device_name": "Apparaatnaam",
           "proxy_source": "Bluetooth-proxy"
         },
@@ -69,7 +69,7 @@
     "error": {
       "invalid_address": "Ongeldig Bluetooth-adres. Gebruik het formaat AA:BB:CC:DD:EE:FF (12 hexadecimale tekens).",
       "invalid_pin": "De pincode moet precies 4 cijfers bevatten.",
-      "pin_rejected": "Het bed heeft deze pincode geweigerd. Controleer de pincode en probeer het opnieuw.",
+      "pin_rejected": "Het bed heeft deze pincode geweigerd of vraagt om een pincode. Controleer de pincode en probeer het opnieuw.",
       "device_unavailable": "Apparaat niet bereikbaar. Controleer of het bed aan staat en binnen bereik is (of dat de Bluetooth-proxy verbonden is).",
       "select_two_different": "Selecteer twee verschillende bedden."
     },

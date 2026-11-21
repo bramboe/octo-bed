@@ -25,9 +25,9 @@
       },
       "pin": {
         "title": "Saisir le code PIN",
-        "description": "Le code PIN à 4 chiffres est requis pour établir la connexion avec votre lit Octo. Vous le trouverez dans le manuel ou l'application du lit.",
+        "description": "Le code PIN à 4 chiffres de votre lit Octo (voir le manuel ou l'application). Laissez vide si votre récepteur n'a pas de code PIN.",
         "data": {
-          "pin": "Code PIN (4 chiffres)",
+          "pin": "Code PIN (4 chiffres, facultatif)",
           "device_name": "Nom de l'appareil",
           "proxy_source": "Proxy Bluetooth"
         },
@@ -69,7 +69,7 @@
     "error": {
       "invalid_address": "Adresse Bluetooth non valide. Utilisez le format AA:BB:CC:DD:EE:FF (12 caractères hexadécimaux).",
       "invalid_pin": "Le code PIN doit comporter exactement 4 chiffres.",
-      "pin_rejected": "Le lit a refusé ce code PIN. Vérifiez-le et réessayez.",
+      "pin_rejected": "Le lit a refusé ce code PIN ou en demande un. Vérifiez-le et réessayez.",
       "device_unavailable": "Appareil injoignable. Vérifiez que le lit est allumé et à portée (ou que le proxy Bluetooth est connecté).",
       "select_two_different": "Sélectionnez deux lits différents."
     },

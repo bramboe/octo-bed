@@ -495,8 +495,8 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         address = self._pending_address()
 
         if user_input is not None:
-            pin = user_input.get("pin", "")
-            if len(pin) != 4 or not pin.isdigit():
+            pin = (user_input.get("pin") or "").strip()
+            if pin and (len(pin) != 4 or not pin.isdigit()):
                 errors["base"] = "invalid_pin"
             else:
                 bleak_device = bluetooth.async_ble_device_from_address(
@@ -528,7 +528,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         return await self.async_step_calibrate_now()
 
         schema_dict: dict[Any, Any] = {
-            vol.Required("pin", default=user_input.get("pin", "") if user_input else ""): str,
+            vol.Optional("pin", default=user_input.get("pin", "") if user_input else ""): str,
             vol.Optional("device_name", default=user_input.get("device_name", "") if user_input else ""): str,
         }
         # Offer the proxy choice up front only when at least one proxy sees the bed

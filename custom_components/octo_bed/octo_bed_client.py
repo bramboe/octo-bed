@@ -81,6 +81,8 @@ DISCONNECT_TIMEOUT = 5.0
 LIVENESS_TIMEOUT = PIN_KEEPALIVE_SECONDS * 3 + 5
 FEATURE_DISCOVERY_TIMEOUT = 5.0
 PIN_VERIFY_TIMEOUT = 8.0
+# Without a PIN, how long to listen for the receiver asking for one.
+NO_PIN_PROBE_SECONDS = 4.0
 # Calibration limits: travel times are clamped to this range when saved, and
 # a measuring session that is never completed aborts itself.
 MIN_TRAVEL_SECONDS = 5.0
@@ -604,7 +606,8 @@ class OctoBedClient:
                 )
                 self._pending_client = client
                 await client.start_notify(COMMAND_CHAR_UUID, self._notification_handler)
-                await self._write_to(client, encode_pin(self._pin))
+                if self._pin:
+                    await self._write_to(client, encode_pin(self._pin))
                 self._require_usable(client)
             except asyncio.CancelledError:
                 self._pending_client = None
@@ -773,6 +776,9 @@ class OctoBedClient:
                 )
                 self._drop(client, "no response to keep-alive")
                 return
+            if not self._pin:
+                # No-PIN receiver: nothing to refresh, only the link check above.
+                continue
             try:
                 await self._write_to(client, encode_pin(self._pin))
             except asyncio.CancelledError:
@@ -813,6 +819,18 @@ class OctoBedClient:
             len(raw) >= 7 and raw[:7] == NOTIFY_PIN_REQUIRED[:7]
         ) or raw == NOTIFY_PIN_REQUIRED_ALT
         if pin_required:
+            if not self._pin:
+                # Configured without a PIN, but this receiver asks for one.
+                if future is not None and not future.done():
+                    future.set_result(False)
+                elif not self._pin_rejected_logged:
+                    self._pin_rejected_logged = True
+                    _LOGGER.error(
+                        "Octo bed %s asks for a PIN but none is configured; "
+                        "reconfigure the bed with its PIN",
+                        self._address,
+                    )
+                return
             self._spawn(self.send_pin())
             return
 
@@ -849,6 +867,13 @@ class OctoBedClient:
                 timeout=CONNECT_TIMEOUT,
             )
             await client.start_notify(COMMAND_CHAR_UUID, self._notification_handler)
+            if not self._pin:
+                # No PIN: the receiver is usable unless it asks for one soon.
+                try:
+                    async with asyncio.timeout(NO_PIN_PROBE_SECONDS):
+                        return await future
+                except TimeoutError:
+                    return client.is_connected
             await self._write_to(client, encode_pin(self._pin))
             async with asyncio.timeout(PIN_VERIFY_TIMEOUT):
                 return await future
@@ -912,6 +937,8 @@ class OctoBedClient:
 
     async def send_pin(self) -> bool:
         """Send PIN authentication on the current link."""
+        if not self._pin:
+            return True
         return await self._write(encode_pin(self._pin), quiet=True)
 
     async def send_stop(self) -> bool:

@@ -25,9 +25,9 @@
       },
       "pin": {
         "title": "PIN eingeben",
-        "description": "Die 4-stellige PIN wird benötigt, um eine Verbindung mit dem Octo-Bett herzustellen. Du findest sie in der Anleitung oder App des Betts.",
+        "description": "Die 4-stellige PIN deines Octo-Betts (siehe Anleitung oder App). Leer lassen, wenn dein Empfänger keine PIN hat.",
         "data": {
-          "pin": "PIN (4 Ziffern)",
+          "pin": "PIN (4 Ziffern, optional)",
           "device_name": "Gerätename",
           "proxy_source": "Bluetooth-Proxy"
         },
@@ -69,7 +69,7 @@
     "error": {
       "invalid_address": "Ungültige Bluetooth-Adresse. Verwende das Format AA:BB:CC:DD:EE:FF (12 Hex-Zeichen).",
       "invalid_pin": "Die PIN muss genau 4 Ziffern haben.",
-      "pin_rejected": "Das Bett hat diese PIN abgelehnt. Überprüfe die PIN und versuche es erneut.",
+      "pin_rejected": "Das Bett hat diese PIN abgelehnt oder verlangt eine. Überprüfe die PIN und versuche es erneut.",
       "device_unavailable": "Gerät nicht erreichbar. Stelle sicher, dass das Bett eingeschaltet und in Reichweite ist (oder der Bluetooth-Proxy verbunden ist).",
       "select_two_different": "Wähle zwei verschiedene Betten aus."
     },
