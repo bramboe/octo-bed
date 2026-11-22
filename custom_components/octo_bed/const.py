@@ -7,6 +7,9 @@ DOMAIN = "octo_bed"
 # BLE
 OCTO_BED_SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"
 COMMAND_CHAR_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"
+# Octo Remote Star2 receivers (e.g. DA1458X): another protocol on its own service
+STAR2_SERVICE_UUID = "0000aa5c-0000-1000-8000-00805f9b34fb"
+STAR2_CHAR_UUID = "00005a55-0000-1000-8000-00805f9b34fb"
 
 # Config
 CONF_PIN = "pin"
@@ -30,6 +33,10 @@ PROXY_SOURCE_AUTO = "auto"
 # Bed capabilities from the last feature discovery (stored in entry data so
 # capability-dependent entities are right before the bed has connected).
 CONF_FEATURES = "features"
+# Receiver protocol: VARIANT_STANDARD (RC2 etc.) or VARIANT_STAR2.
+CONF_VARIANT = "variant"
+VARIANT_STANDARD = "standard"
+VARIANT_STAR2 = "star2"
 
 # hass.data key of the lock that makes beds set up their BLE connections one
 # at a time (simultaneous GATT discovery on one ESP32 proxy tends to fail).
@@ -74,3 +81,16 @@ NOTIFY_PIN_REQUIRED = bytes.fromhex("40214400001b40")
 NOTIFY_PIN_REQUIRED_ALT = bytes.fromhex("40217f0000e040")
 NOTIFY_PIN_ACCEPTED = bytes.fromhex("40214300011a0140")
 NOTIFY_PIN_REJECTED = bytes.fromhex("40214300011b0040")
+
+
+# Star2 motor frames (fixed bytes, reverse-engineered by goedh452). There is no
+# stop frame: the motors stop when the frames stop, so they are repeated like
+# the standard movement commands. Light and memory presets are not supported.
+STAR2_COMMANDS: dict[bytes, bytes] = {
+    CMD_HEAD_UP: bytes.fromhex("6830313030303030303130363138" "16"),
+    CMD_HEAD_DOWN: bytes.fromhex("683031303030303030313039313b" "16"),
+    CMD_FEET_UP: bytes.fromhex("6830313030303030303130343136" "16"),
+    CMD_FEET_DOWN: bytes.fromhex("6830313030303030303130373139" "16"),
+    CMD_BOTH_UP: bytes.fromhex("683031303030303030313237313b" "16"),
+    CMD_BOTH_DOWN: bytes.fromhex("683031303030303030313238313c" "16"),
+}

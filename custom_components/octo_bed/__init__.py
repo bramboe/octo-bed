@@ -33,6 +33,7 @@ from .const import (
     CONF_PROXY_SOURCE,
     CONF_SHOW_CALIBRATION_BUTTONS,
     CONF_SOFT_PRESETS,
+    CONF_VARIANT,
     CONNECT_GATE_KEY,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
@@ -204,6 +205,7 @@ async def _async_setup_bed(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         presence_checker=_present,
         connect_gate=hass.data.setdefault(CONNECT_GATE_KEY, asyncio.Lock()),
         features_callback=_on_features,
+        variant=entry.data.get(CONF_VARIANT),
     )
     client.load_capabilities(entry.data.get(CONF_FEATURES))
     hass.data[DOMAIN][entry.entry_id] = client

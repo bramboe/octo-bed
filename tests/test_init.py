@@ -293,3 +293,23 @@ def test_registry_devices_supports_the_new_view() -> None:
             raise AssertionError(f"deprecated mapping use: {name}")
 
     assert _registry_devices(SimpleNamespace(devices=NewStyleView())) == [entry]
+
+
+async def test_saved_soft_preset_becomes_available_at_once(
+    hass: HomeAssistant, fake_bluetooth: FakeBluetooth, bed: FakeBed
+) -> None:
+    fake_bluetooth.add(bed)
+    entry = bed_entry(hass, bed, "Bram")
+    uid = entry.unique_id
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+    await wait_for(client_of(hass, entry).is_connected)
+    await hass.async_block_till_done()
+    registry = er.async_get(hass)
+    preset = registry.async_get_entity_id("button", DOMAIN, f"{uid}_soft_preset_1")
+    save = registry.async_get_entity_id("button", DOMAIN, f"{uid}_save_soft_preset_1")
+    assert hass.states.get(preset).state == "unavailable"
+
+    await hass.services.async_call("button", "press", {"entity_id": save}, blocking=True)
+    await hass.async_block_till_done()
+    assert hass.states.get(preset).state != "unavailable"

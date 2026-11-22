@@ -7,6 +7,9 @@
     },
     {
       "service_uuid": "0000ffe0-0000-1000-8000-00805f9b34fb"
+    },
+    {
+      "service_uuid": "0000aa5c-0000-1000-8000-00805f9b34fb"
     }
   ],
   "codeowners": [
@@ -26,5 +29,5 @@
   "requirements": [
     "bleak-retry-connector>=3.0.0"
   ],
-  "version": "2.10.0"
+  "version": "2.11.0"
 }

@@ -270,6 +270,13 @@ class OctoBedSoftPresetButton(ButtonEntity):
         self.async_on_remove(
             self._client.register_calibration_state_callback(self._on_calibration_changed)
         )
+        # Saving a preset only changes the entry options; refresh on that too,
+        # otherwise the button stays unavailable until something else updates it.
+        self.async_on_remove(self._entry.add_update_listener(self._on_entry_updated))
+
+    async def _on_entry_updated(self, _hass: HomeAssistant, _entry: ConfigEntry) -> None:
+        self.async_write_ha_state()
+
     @callback
     def _on_client_state_changed(self, connected: bool) -> None:
         self.async_write_ha_state()

@@ -33,6 +33,8 @@ async def async_setup_entry(
         manufacturer="Octo",
     )
 
+    if getattr(client, "is_star2", False):
+        return  # Star2 receivers have no light command
     async_add_entities([OctoBedLight(client, device_info, uid)])
 
 

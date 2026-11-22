@@ -56,6 +56,7 @@ class FakeBed:
         self.device = FakeBleDevice(address)
         self.capabilities: list[str] = list(RC2_CAPABILITIES)
         self.ack_pin = True
+        self.characteristics = {"0000ffe1-0000-1000-8000-00805f9b34fb"}
         self.asks_for_pin = False  # bed sends "PIN required" right after subscribe
         self.connect_failures = 0  # next N establish_connection calls fail
         self.notify_failures = 0  # next N start_notify calls fail (GATT 133)
@@ -89,6 +90,14 @@ class FakeBed:
         ]
 
 
+class _FakeServices:
+    def __init__(self, bed: FakeBed) -> None:
+        self._bed = bed
+
+    def get_characteristic(self, uuid: str) -> object | None:
+        return object() if uuid in self._bed.characteristics else None
+
+
 class FakeBleakClient:
     """Implements the part of BleakClient the integration uses."""
 
@@ -100,6 +109,8 @@ class FakeBleakClient:
         self.is_connected = True
         self.writes: list[bytes] = []
         self._notify: Callable[[Any, bytearray], None] | None = None
+        self.write_uuids: list[str] = []
+        self.services = _FakeServices(bed)
 
     async def start_notify(self, _uuid: str, callback: Callable[..., None]) -> None:
         await asyncio.sleep(0)
@@ -117,6 +128,7 @@ class FakeBleakClient:
         if not self.is_connected:
             raise BleakError("Not connected")
         data = bytes(data)
+        self.write_uuids.append(_uuid)
         self.writes.append(data)
         self.bed.writes.append(data)
         loop = asyncio.get_running_loop()

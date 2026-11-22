@@ -56,6 +56,9 @@ from .const import (
     NOTIFY_PIN_REQUIRED,
     NOTIFY_PIN_REQUIRED_ALT,
     PIN_KEEPALIVE_SECONDS,
+    STAR2_CHAR_UUID,
+    STAR2_COMMANDS,
+    VARIANT_STAR2,
 )
 from .protocol import encode_pin
 
@@ -168,6 +171,7 @@ class OctoBedClient:
         presence_checker: Callable[[], bool] | None = None,
         connect_gate: asyncio.Lock | None = None,
         features_callback: Callable[[dict[str, Any]], None] | None = None,
+        variant: str | None = None,
     ) -> None:
         """Initialize the Octo Bed client.
 
@@ -181,6 +185,11 @@ class OctoBedClient:
         self._address = (address or device.address).upper()  # type: ignore[union-attr]
         self._name = name or "Octo Bed"
         self._pin = pin
+        # Star2 receivers: own characteristic, fixed motor frames, no PIN,
+        # notifications or feature discovery.
+        self._star2 = variant == VARIANT_STAR2
+        if self._star2:
+            self._pin = ""
         self._disconnect_callback = disconnect_callback
         self._device_resolver = device_resolver
         self._presence_checker = presence_checker
@@ -289,6 +298,11 @@ class OctoBedClient:
         return self._synchro_active
 
     @property
+    def is_star2(self) -> bool:
+        """True for an Octo Remote Star2 receiver (no light, presets or feedback)."""
+        return self._star2
+
+    @property
     def has_rgbwi_light(self) -> bool:
         """True if the bed reported RGBW+intensity light control."""
         return self._has_rgbwi
@@ -370,7 +384,7 @@ class OctoBedClient:
             self._rgbwi_value_type = value_type
 
     def _maybe_discover_features(self) -> None:
-        if self._features_discovered:
+        if self._features_discovered or self._star2:
             return
         self._spawn(self._discover_features_task())
 
@@ -605,7 +619,8 @@ class OctoBedClient:
                     timeout=CONNECT_TIMEOUT,
                 )
                 self._pending_client = client
-                await client.start_notify(COMMAND_CHAR_UUID, self._notification_handler)
+                if not self._star2:
+                    await client.start_notify(COMMAND_CHAR_UUID, self._notification_handler)
                 if self._pin:
                     await self._write_to(client, encode_pin(self._pin))
                 self._require_usable(client)
@@ -866,6 +881,9 @@ class OctoBedClient:
                 max_attempts=CONNECT_MAX_ATTEMPTS + 1,
                 timeout=CONNECT_TIMEOUT,
             )
+            if self._star2:
+                # Nothing to authenticate: usable when the Star2 characteristic exists.
+                return client.services.get_characteristic(STAR2_CHAR_UUID) is not None
             await client.start_notify(COMMAND_CHAR_UUID, self._notification_handler)
             if not self._pin:
                 # No PIN: the receiver is usable unless it asks for one soon.
@@ -893,6 +911,15 @@ class OctoBedClient:
     # ----------------------------------------------------------------- commands
 
     async def _write_to(self, client: BleakClient, data: bytes) -> None:
+        if self._star2:
+            frame = STAR2_COMMANDS.get(data)
+            if frame is None:
+                # Stop, light, presets...: no Star2 equivalent (motors stop by
+                # themselves once the frames stop).
+                return
+            async with asyncio.timeout(WRITE_TIMEOUT):
+                await client.write_gatt_char(STAR2_CHAR_UUID, frame, response=True)
+            return
         async with asyncio.timeout(WRITE_TIMEOUT):
             await client.write_gatt_char(COMMAND_CHAR_UUID, data, response=False)
 

@@ -40,10 +40,14 @@ from .const import (
     CONF_PROXY_SOURCE,
     CONF_SHOW_CALIBRATION_BUTTONS,
     CONF_SOFT_PRESETS,
+    CONF_VARIANT,
     DEFAULT_FULL_TRAVEL_SECONDS,
     DOMAIN,
     OCTO_BED_SERVICE_UUID,
     PROXY_SOURCE_AUTO,
+    STAR2_SERVICE_UUID,
+    VARIANT_STANDARD,
+    VARIANT_STAR2,
 )
 from .octo_bed_client import OctoBedClient
 
@@ -83,7 +87,16 @@ def _is_octo_bed(info: BluetoothServiceInfoBleak) -> bool:
     """Return True if this discovery looks like an Octo bed."""
     if info.name and info.name.strip() in OCTO_BED_NAMES:
         return True
-    return bool(info.service_uuids and OCTO_BED_SERVICE_UUID in info.service_uuids)
+    uuids = info.service_uuids or []
+    return OCTO_BED_SERVICE_UUID in uuids or STAR2_SERVICE_UUID in uuids
+
+
+def _detect_variant(info: BluetoothServiceInfoBleak | None) -> str:
+    """Star2 for receivers that only advertise the Star2 service."""
+    uuids = (info.service_uuids if info else None) or []
+    if STAR2_SERVICE_UUID in uuids and OCTO_BED_SERVICE_UUID not in uuids:
+        return VARIANT_STAR2
+    return VARIANT_STANDARD
 
 
 def _registry_devices(dev_reg: dr.DeviceRegistry) -> list[dr.DeviceEntry]:
@@ -494,8 +507,17 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         address = self._pending_address()
 
+        info = self._discovery_info or (
+            bluetooth.async_last_service_info(self.hass, address, connectable=True)
+            if address
+            else None
+        )
+        variant = _detect_variant(info)
+
         if user_input is not None:
             pin = (user_input.get("pin") or "").strip()
+            if variant == VARIANT_STAR2:
+                pin = ""  # Star2 receivers have no PIN
             if pin and (len(pin) != 4 or not pin.isdigit()):
                 errors["base"] = "invalid_pin"
             else:
@@ -505,7 +527,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if not bleak_device:
                     errors["base"] = "device_unavailable"
                 else:
-                    client = OctoBedClient(bleak_device, pin)
+                    client = OctoBedClient(bleak_device, pin, variant=variant)
                     if not await client.connect_and_verify_pin():
                         await client.disconnect()
                         errors["base"] = "pin_rejected"
@@ -514,6 +536,7 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         self._pin_validated = True
                         self._address = address
                         self._pin = pin
+                        self._variant = variant
                         self._device_name = (user_input.get("device_name") or "").strip()
                         self._proxy_source = user_input.get(
                             CONF_PROXY_SOURCE, PROXY_SOURCE_AUTO
@@ -588,6 +611,8 @@ class OctoBedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Create the config entry for the bed (and optionally group)."""
         title = f"Octo Bed ({self._address})" if not self._device_name else self._device_name
         data = {"address": self._address, "pin": self._pin}
+        if getattr(self, "_variant", VARIANT_STANDARD) == VARIANT_STAR2:
+            data[CONF_VARIANT] = VARIANT_STAR2
         if self._pair_with_entry_id:
             data[CONF_PAIR_WITH_ENTRY_ID] = self._pair_with_entry_id
             data[CONF_PAIR_CALIBRATE] = getattr(self, "_pair_calibrate", True)
