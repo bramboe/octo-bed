@@ -17,6 +17,7 @@ from homeassistant.config_entries import (
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
@@ -131,6 +132,28 @@ async def _async_setup_group(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+@callback
+def _async_reload_beds_missing_sync_to(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Give beds set up before this one their "sync to" button for it.
+
+    Sync buttons are created when a bed's platforms load, so a bed added
+    earlier only gets the button for a newly added bed after a reload.
+    """
+    registry = er.async_get(hass)
+    for other in hass.config_entries.async_entries(DOMAIN):
+        if (
+            other.entry_id == entry.entry_id
+            or other.data.get(CONF_IS_GROUP)
+            or other.state is not ConfigEntryState.LOADED
+        ):
+            continue
+        other_uid = other.unique_id or other.entry_id
+        if registry.async_get_entity_id(
+            "button", DOMAIN, f"{other_uid}_sync_to_{entry.entry_id}"
+        ) is None:
+            hass.config_entries.async_schedule_reload(other.entry_id)
+
+
 def _async_migrate_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Make sure options written by older versions have every key."""
     opts = dict(entry.options) if entry.options else {}
@@ -239,6 +262,7 @@ async def _async_setup_bed(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _async_reload_beds_missing_sync_to(hass, entry)
 
     # Wake the connection manager the moment the bed advertises again, e.g.
     # right after it dropped the connection or came back into range.

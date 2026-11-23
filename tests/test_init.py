@@ -313,3 +313,27 @@ async def test_saved_soft_preset_becomes_available_at_once(
     await hass.services.async_call("button", "press", {"entity_id": save}, blocking=True)
     await hass.async_block_till_done()
     assert hass.states.get(preset).state != "unavailable"
+
+
+async def test_earlier_bed_gets_sync_button_for_a_new_bed(
+    hass: HomeAssistant, fake_bluetooth: FakeBluetooth, bed: FakeBed, second_bed: FakeBed
+) -> None:
+    fake_bluetooth.add(bed)
+    fake_bluetooth.add(second_bed)
+    first = bed_entry(hass, bed, "Bram")
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+
+    second = bed_entry(hass, second_bed, "Ianthe")
+    assert await hass.config_entries.async_setup(second.entry_id)
+    await hass.async_block_till_done()
+    registry = er.async_get(hass)
+    await wait_for(
+        lambda: registry.async_get_entity_id(
+            "button", DOMAIN, f"{first.unique_id}_sync_to_{second.entry_id}"
+        )
+        is not None
+    )
+    assert registry.async_get_entity_id(
+        "button", DOMAIN, f"{second.unique_id}_sync_to_{first.entry_id}"
+    )
